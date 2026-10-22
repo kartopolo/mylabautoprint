@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MyLab AutoPrint - Pengaturan</title>
+<link rel="icon" href="icon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <img src="icon.png" alt="" width="36" height="36">
+  <div>
+    <h1>MyLab AutoPrint</h1>
+    <small id="ver">memuat…</small>
+  </div>
+  <span id="conn" class="pill">…</span>
+</header>
+<div id="updbanner" class="banner hidden"></div>
+<main>
+  <section>
+    <h2>Printer</h2>
+    <p class="hint">Pilih printer default per jenis job. Kosong = pakai printer default Windows.</p>
+    <div class="grid">
+      <label>Default umum <select data-k="printers.default" class="psel"></select></label>
+      <label>Raw / struk (ESC/POS, ZPL) <select data-k="printers.raw" class="psel"></select></label>
+      <label>PDF <select data-k="printers.pdf" class="psel"></select></label>
+      <label>Gambar (PNG/JPG) <select data-k="printers.image" class="psel"></select></label>
+      <label>Teks <select data-k="printers.text" class="psel"></select></label>
+      <label>HTML <select data-k="printers.html" class="psel"></select></label>
+    </div>
+    <p class="hint">Printer jaringan langsung (raw): ketik di kolom printer web app <code>tcp://192.168.1.50:9100</code>.</p>
+  </section>
+
+  <section>
+    <h2>Default cetak</h2>
+    <div class="grid">
+      <label>Ukuran kertas
+        <select data-k="defaults.paper">
+          <option value="">Ikuti printer</option><option>A4</option><option>A5</option><option>A3</option>
+          <option>Letter</option><option>Legal</option><option>F4</option>
+        </select></label>
+      <label>Orientasi
+        <select data-k="defaults.orientation"><option value="portrait">Portrait (tegak)</option><option value="landscape">Landscape (mendatar)</option></select></label>
+      <label>Jumlah salinan <input type="number" min="1" max="99" data-k="defaults.copies" data-type="int"></label>
+      <label>Skala PDF
+        <select data-k="defaults.pdf_scale"><option value="fit">Fit (sesuaikan halaman)</option><option value="shrink">Shrink (perkecil jika perlu)</option><option value="noscale">Ukuran asli</option></select></label>
+    </div>
+  </section>
+
+  <section>
+    <h2>Tes print</h2>
+    <div class="row">
+      <select id="tptype"><option value="text">Teks</option><option value="raw">Raw ESC/POS (struk)</option><option value="image">Gambar</option><option value="pdf">PDF</option></select>
+      <select id="tpprinter" class="psel"></select>
+      <button id="tpbtn">Tes Print</button>
+    </div>
+    <div id="tpres" class="hint"></div>
+  </section>
+
+  <section>
+    <h2>Keamanan &amp; koneksi</h2>
+    <div class="grid">
+      <label>Port <input type="number" min="1024" max="65535" data-k="port" data-type="int"></label>
+      <label>API key (opsional) <input type="text" data-k="api_key" placeholder="kosong = tanpa API key" autocomplete="off"></label>
+    </div>
+    <label>Website yang diizinkan (satu per baris, <code>*</code> = semua, contoh <code>https://app.domainkamu.com</code> atau <code>https://*.domainkamu.com</code>)
+      <textarea rows="4" data-k="allowed_origins" data-type="lines"></textarea></label>
+    <label class="check"><input type="checkbox" data-k="autostart" data-type="bool"> Jalan otomatis saat Windows nyala</label>
+  </section>
+
+  <section>
+    <h2>Update</h2>
+    <div class="grid">
+      <label class="check"><input type="checkbox" data-k="update.enabled" data-type="bool"> Cek update otomatis</label>
+      <label>Mode <select data-k="update.mode"><option value="notify">Beri tahu dulu (klik untuk update)</option><option value="auto">Otomatis penuh</option></select></label>
+      <label>Sumber <select data-k="update.source"><option value="github">GitHub Releases</option><option value="url">URL sendiri (latest.json)</option></select></label>
+      <label>Repo GitHub (OWNER/REPO) <input type="text" data-k="update.repo"></label>
+      <label>URL latest.json <input type="text" data-k="update.url" placeholder="https://update.domainkamu.com/latest.json"></label>
+      <label>Channel <select data-k="update.channel"><option value="stable">stable</option><option value="beta">beta (termasuk pre-release)</option></select></label>
+      <label>Interval cek (jam) <input type="number" min="1" max="168" data-k="update.check_interval_hours" data-type="int"></label>
+    </div>
+    <div class="row">
+      <button id="updcheck" class="secondary">Cek update sekarang</button>
+      <button id="updinstall" class="hidden">Update sekarang</button>
+      <span id="updres" class="hint"></span>
+    </div>
+  </section>
+
+  <div class="savebar">
+    <button id="save">Simpan pengaturan</button>
+    <span id="saveres"></span>
+  </div>
+
+  <section>
+    <h2>Riwayat job <button id="jobsref" class="link">muat ulang</button></h2>
+    <table>
+      <thead><tr><th>Waktu</th><th>Tipe</th><th>Printer</th><th>Nama job</th><th>Status</th></tr></thead>
+      <tbody id="jobs"></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Log <button id="logref" class="link">muat ulang</button></h2>
+    <pre id="log"></pre>
+    <p class="hint" id="paths"></p>
+  </section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>

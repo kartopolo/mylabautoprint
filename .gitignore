@@ -1,0 +1,7 @@
+build/
+release/out/
+third_party/sumatrapdf/SumatraPDF.exe
+*.key
+!release/public.key
+keys/
+cmd/mylabautoprint/rsrc_windows_*.syso

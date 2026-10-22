@@ -1,0 +1,3 @@
+# Key yang dikunci (klien tidak bisa mengubah dari halaman Pengaturan/API). Satu per baris.
+# update.repo
+# allowed_origins

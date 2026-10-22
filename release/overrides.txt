@@ -1,0 +1,5 @@
+# Config override yang dikirim ke SEMUA klien saat update berikutnya (format key=JSON).
+# Hapus tanda # untuk mengaktifkan. Kosongkan file ini setelah rilis jika tidak perlu lagi.
+# update.repo="kartopolo/mylabautoprint-releases"
+# allowed_origins=["https://app.domainkamu.com"]
+# port=8181

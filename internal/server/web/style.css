@@ -1,0 +1,27 @@
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.45 "Segoe UI",Roboto,Arial,sans-serif;background:#f3f5f9;color:#1d2433}
+header{display:flex;align-items:center;gap:12px;padding:14px 24px;background:#1f5fbf;color:#fff}
+header h1{margin:0;font-size:18px}header small{opacity:.85}
+.pill{margin-left:auto;padding:3px 10px;border-radius:12px;background:#ffffff33;font-size:12px}
+.pill.ok{background:#2e9d5b}.pill.bad{background:#c0392b}
+main{max-width:980px;margin:0 auto;padding:16px}
+section{background:#fff;border-radius:10px;padding:16px 18px;margin-bottom:14px;box-shadow:0 1px 3px #0001}
+h2{font-size:15px;margin:0 0 10px;display:flex;gap:10px;align-items:center}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px 18px}
+label{display:flex;flex-direction:column;gap:4px;font-weight:600;font-size:13px;margin-bottom:6px}
+label.check{flex-direction:row;align-items:center;gap:8px}
+input[type=text],input[type=number],select,textarea{font:inherit;padding:7px 9px;border:1px solid #c8d0de;border-radius:6px;background:#fff;font-weight:400}
+textarea{width:100%;font-family:Consolas,monospace}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+button{font:inherit;padding:8px 16px;border:0;border-radius:6px;background:#1f5fbf;color:#fff;cursor:pointer}
+button:hover{background:#174a96}button.secondary{background:#e3e9f4;color:#1d2433}
+button.link{background:none;color:#1f5fbf;padding:0;font-size:12px}
+.hint{color:#5a6478;font-size:12.5px;margin:4px 0}
+.savebar{position:sticky;bottom:0;background:#f3f5f9;padding:10px 0;display:flex;gap:12px;align-items:center;z-index:2}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th,td{text-align:left;padding:5px 6px;border-bottom:1px solid #eef1f6}
+.st-done{color:#2e9d5b;font-weight:600}.st-error{color:#c0392b;font-weight:600}.st-printing,.st-queued{color:#b9770e;font-weight:600}
+pre{background:#11161f;color:#cfe3ff;padding:10px;border-radius:6px;max-height:280px;overflow:auto;font-size:12px}
+.banner{background:#fff4d6;border-bottom:1px solid #f0d58a;padding:10px 24px}
+.hidden{display:none!important}.locked{opacity:.6}
+code{background:#eef1f6;padding:1px 4px;border-radius:4px}

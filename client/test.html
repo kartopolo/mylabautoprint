@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<title>MyLab AutoPrint - Demo / Tes</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body{font:14px "Segoe UI",Arial,sans-serif;max-width:860px;margin:20px auto;padding:0 12px;color:#1d2433}
+fieldset{border:1px solid #d5dbe6;border-radius:8px;margin:12px 0;padding:10px 14px}
+label{display:inline-block;margin:4px 10px 4px 0}
+input,select,textarea,button{font:inherit;padding:5px 8px}
+textarea{width:100%;font-family:Consolas,monospace}
+button{background:#1f5fbf;color:#fff;border:0;border-radius:5px;padding:7px 14px;cursor:pointer;margin:3px}
+#st{font-weight:bold}.connected{color:#2e9d5b}.disconnected{color:#c0392b}.connecting{color:#b9770e}
+pre{background:#11161f;color:#cfe3ff;padding:10px;border-radius:6px;max-height:300px;overflow:auto}
+</style>
+</head>
+<body>
+<h2>MyLab AutoPrint – Demo</h2>
+<p>Status: <span id="st" class="disconnected">disconnected</span> · versi: <span id="ver">-</span></p>
+<fieldset>
+  <legend>Koneksi</legend>
+  <label>Port <input id="port" value="8181" size="6"></label>
+  <label>API key <input id="key" size="18"></label>
+  <button id="btnConnect">Hubungkan (WebSocket)</button>
+  <button id="btnPrinters">Daftar printer</button>
+</fieldset>
+<fieldset>
+  <legend>Print</legend>
+  <label>Printer <select id="printer"><option value="">(default)</option></select></label>
+  <label>atau tcp:// <input id="tcp" placeholder="tcp://192.168.1.50:9100" size="24"></label>
+  <label>Salinan <input id="copies" type="number" value="1" min="1" style="width:60px"></label>
+  <label>Kertas <select id="paper"><option value="">(default)</option><option>A4</option><option>A5</option><option>Letter</option></select></label>
+  <label>Orientasi <select id="orient"><option value="">(default)</option><option>portrait</option><option>landscape</option></select></label>
+  <br>
+  <textarea id="text" rows="5">MyLab AutoPrint
+Tes cetak teks
+Terima kasih!</textarea>
+  <button id="bRaw">Print RAW ESC/POS (struk)</button>
+  <button id="bText">Print Teks</button>
+  <button id="bHTML">Print HTML (isi textarea)</button>
+  <br>
+  <label>File (PDF / PNG / JPG) <input type="file" id="file" accept=".pdf,image/*"></label>
+  <button id="bFile">Print file</button>
+  <br>
+  <label>URL PDF <input id="url" size="50" placeholder="https://.../file.pdf"></label>
+  <button id="bURL">Print PDF dari URL</button>
+</fieldset>
+<pre id="log"></pre>
+<script src="mylabautoprint.js"></script>
+<script>
+var ap;
+function log(m) { var l = document.getElementById("log"); l.textContent = new Date().toLocaleTimeString() + "  " + (typeof m === "string" ? m : JSON.stringify(m)) + "\n" + l.textContent; }
+function $(id) { return document.getElementById(id); }
+function client() {
+  if (ap) ap.disconnect();
+  ap = new MyLabAutoPrint({ port: +$("port").value, apiKey: $("key").value });
+  ap.onStatus(function (s) { $("st").textContent = s; $("st").className = s; });
+  ap.onJob(function (j) { log("job " + j.id + " [" + j.type + " -> " + j.printer + "]: " + j.status + (j.error ? " - " + j.error : "")); });
+  ap.onPrinters(function (p) { fill(p); });
+  return ap;
+}
+function fill(p) {
+  var sel = $("printer"), cur = sel.value;
+  sel.innerHTML = '<option value="">(default: ' + (p.default || "-") + ')</option>' +
+    p.printers.map(function (x) { return "<option>" + x.name.replace(/</g, "&lt;") + "</option>"; }).join("");
+  sel.value = cur;
+}
+function opts() {
+  return { printer: $("tcp").value || $("printer").value || undefined, copies: +$("copies").value || 1,
+           paper: $("paper").value || undefined, orientation: $("orient").value || undefined };
+}
+function run(p) { p.then(function (j) { log("SELESAI: " + j.id + " " + j.status); }, function (e) { log("GAGAL: " + e.message); }); }
+
+$("btnConnect").onclick = function () {
+  client().connect().then(function () { return ap.getStatus(); }).then(function (s) { $("ver").textContent = s.version; log("terhubung"); },
+    function (e) { log("GAGAL konek: " + e.message + " (apakah MyLab AutoPrint sudah terpasang & jalan?)"); });
+};
+$("btnPrinters").onclick = function () { (ap || client()).listPrinters().then(function (p) { fill(p); log(p); }, function (e) { log(e.message); }); };
+$("bRaw").onclick = function () { run((ap || client()).printRaw(MyLabAutoPrint.escpos($("text").value), opts())); };
+$("bText").onclick = function () { run((ap || client()).printText($("text").value, opts())); };
+$("bHTML").onclick = function () { run((ap || client()).printHTML("<html><body><h1>Demo</h1><pre>" + $("text").value + "</pre></body></html>", opts())); };
+$("bURL").onclick = function () { run((ap || client()).printPDF($("url").value, opts())); };
+$("bFile").onclick = function () {
+  var f = $("file").files[0]; if (!f) { log("pilih file dulu"); return; }
+  var c = ap || client();
+  run(f.type === "application/pdf" || /\.pdf$/i.test(f.name) ? c.printPDF(f, opts()) : c.printImage(f, opts()));
+};
+client().isAvailable().then(function (ok) { log(ok ? "MyLab AutoPrint terdeteksi di port " + ap.port : "MyLab AutoPrint TIDAK terdeteksi"); if (ok) $("btnConnect").click(); });
+</script>
+</body>
+</html>

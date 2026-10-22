@@ -1,0 +1,15 @@
+{
+  "port": 8181,
+  "allowed_origins": ["*"],
+  "api_key": "",
+  "autostart": true,
+  "update": {
+    "enabled": true,
+    "mode": "notify",
+    "source": "github",
+    "repo": "kartopolo/mylabautoprint-releases",
+    "url": "",
+    "channel": "stable",
+    "check_interval_hours": 6
+  }
+}

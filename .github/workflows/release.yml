@@ -1,0 +1,88 @@
+# Build + sign + publish MyLab AutoPrint when a tag v* is pushed.
+#
+# Required repository secrets (Settings > Secrets and variables > Actions):
+#   MYLABAUTOPRINT_SIGNING_KEY  base64 ed25519 private key (content of keys/private.key)
+#   RELEASES_TOKEN              fine-grained PAT with "Contents: Read and write" on the
+#                               public releases repo (kartopolo/mylabautoprint-releases).
+#                               GITHUB_TOKEN cannot publish to another repository.
+# Optional repository variable:
+#   RELEASES_REPO               default kartopolo/mylabautoprint-releases
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versi (tanpa v), build+sign saja tanpa publish"
+        required: true
+        default: "0.0.0-test"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      RELEASES_REPO: ${{ vars.RELEASES_REPO || 'kartopolo/mylabautoprint-releases' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install NSIS
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq nsis
+
+      - name: Version
+        id: v
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then V="${GITHUB_REF_NAME#v}"; else V="${{ github.event.inputs.version }}"; fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Build (exe, release tool, installer)
+        run: ./build.sh "${{ steps.v.outputs.version }}"
+
+      - name: Sign manifest
+        env:
+          MYLABAUTOPRINT_SIGNING_KEY: ${{ secrets.MYLABAUTOPRINT_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$MYLABAUTOPRINT_SIGNING_KEY" || { echo "::error::secret MYLABAUTOPRINT_SIGNING_KEY belum di-set"; exit 1; }
+          V="${{ steps.v.outputs.version }}"
+          OUT="release/out/v$V"; mkdir -p "$OUT"
+          SETUP="MyLabAutoPrint-Setup-$V.exe"
+          cp "build/$SETUP" "$OUT/"
+          ARGS=()
+          if [ -f release/overrides.txt ]; then while IFS= read -r l; do case "$l" in ""|\#*) ;; *) ARGS+=(-override "$l");; esac; done < release/overrides.txt; fi
+          if [ -f release/locks.txt ]; then while IFS= read -r l; do case "$l" in ""|\#*) ;; *) ARGS+=(-lock "$l");; esac; done < release/locks.txt; fi
+          NOTES="$(git tag -l --format='%(contents)' "v$V" 2>/dev/null | head -c 2000)"
+          [ -n "$NOTES" ] || NOTES="Rilis v$V"
+          build/mylabautoprint-release-linux sign -key env -installer "$OUT/$SETUP" -version "$V" \
+            -notes "$NOTES" -out "$OUT/latest.json" -notes-out "$OUT/release-notes.md" ${ARGS[@]+"${ARGS[@]}"}
+          # fail if the secret does not match the public key embedded in the app
+          build/mylabautoprint-release-linux verify -pub release/public.key -manifest "$OUT/latest.json" -installer "$OUT/$SETUP"
+          cp build/mylabautoprint.exe build/mylabautoprint-release.exe build/mylabautoprint-release-linux "$OUT/"
+          echo "OUT=$OUT" >> "$GITHUB_ENV"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mylabautoprint-${{ steps.v.outputs.version }}
+          path: ${{ env.OUT }}
+
+      - name: Publish to releases repo
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN" || { echo "::error::secret RELEASES_TOKEN belum di-set"; exit 1; }
+          V="${{ steps.v.outputs.version }}"
+          PRE=""; case "$V" in *-*) PRE="--prerelease";; esac
+          gh release create "v$V" "$OUT/MyLabAutoPrint-Setup-$V.exe" "$OUT/latest.json" \
+            --repo "$RELEASES_REPO" --title "MyLab AutoPrint v$V" --notes-file "$OUT/release-notes.md" $PRE

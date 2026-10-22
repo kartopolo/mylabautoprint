@@ -1,0 +1,10 @@
+SumatraPDF 3.6.1 (64-bit portable) - https://www.sumatrapdfreader.org/
+Copyright (c) Krzysztof Kowalczyk and contributors.
+
+SumatraPDF is free software licensed under the GNU General Public License v3
+(see SumatraPDF-COPYING.txt). Some components are under BSD/other licenses.
+Source code: https://github.com/sumatrapdfreader/sumatrapdf
+
+MyLab AutoPrint bundles the unmodified official portable binary and calls it as
+a separate program (command line: -print-to / -print-settings / -silent) to print
+PDF files. It is not linked into MyLab AutoPrint.
