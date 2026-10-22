@@ -6,10 +6,10 @@ idealnya PC bersih (tanpa QZ Tray), dengan minimal 1 printer biasa + 1 printer t
 ## A. Instalasi
 | # | Langkah | Hasil yang diharapkan | ✅/❌ |
 |---|---|---|---|
-| A1 | Double-click `MyLabAutoPrint-Setup-1.0.0.exe` | SmartScreen biru muncul → *More info → Run anyway* bisa diklik | |
+| A1 | Double-click `MyLabAutoPrint-Setup-1.0.3.exe` | SmartScreen biru muncul → *More info → Run anyway* bisa diklik | |
 | A2 | UAC → Ya → Next → Install → Finish (centang "Jalankan") | Selesai tanpa error | |
 | A3 | Lihat tray (pojok kanan bawah / panah `^`) | Ikon printer biru muncul | |
-| A4 | Settings → Apps | "MyLab AutoPrint" versi 1.0.0 ada, ada tombol Uninstall | |
+| A4 | Settings → Apps | "MyLab AutoPrint" versi 1.0.3 ada, ada tombol Uninstall | |
 | A5 | Start Menu | Folder "MyLab AutoPrint" berisi shortcut aplikasi + Uninstall | |
 | A6 | Buka `C:\ProgramData\MyLabAutoPrint\` | Ada `config.json` dan `logs\mylabautoprint.log` | |
 | A6b | Buka `http://127.0.0.1:47819/status` di browser | JSON `"ok":true`, `"port":47819` | |
@@ -71,10 +71,10 @@ idealnya PC bersih (tanpa QZ Tray), dengan minimal 1 printer biasa + 1 printer t
 | E4 | WebSocket: status job real-time (queued → printing → done) | Event muncul di web app | |
 
 ## F. Update
-Siapkan rilis v1.0.1 (GitHub Actions atau `./release.sh 1.0.1 "tes" --publish`).
+Siapkan rilis berikutnya, mis. v1.0.4 (GitHub Actions atau `./release.sh 1.0.4 "tes" --publish`).
 | # | Langkah | Hasil | ✅/❌ |
 |---|---|---|---|
-| F1 | Tray → Cek Update | "Versi baru tersedia v1.0.1" → Ya | |
+| F1 | Tray → Cek Update | "Versi baru tersedia v1.0.4" → Ya | |
 | F2 | UAC → Ya | Aplikasi tertutup, terpasang ulang diam-diam, ikon muncul lagi dalam ±10 detik | |
 | F3 | Tray → Status | Versi 1.0.1; setting printer/port lama tetap | |
 | F4 | Mode `notify`: tunggu cek otomatis (atau restart aplikasi, cek setelah ±20 detik) | Ikon dapat titik oranye + menu "Update tersedia vX" | |
