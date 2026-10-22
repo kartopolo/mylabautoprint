@@ -20,7 +20,7 @@ pre{background:#11161f;color:#cfe3ff;padding:10px;border-radius:6px;max-height:3
 <p>Status: <span id="st" class="disconnected">disconnected</span> · versi: <span id="ver">-</span></p>
 <fieldset>
   <legend>Koneksi</legend>
-  <label>Port <input id="port" value="8181" size="6"></label>
+  <label>Port <input id="port" value="" size="6" placeholder="auto"></label> <small>(kosong = deteksi otomatis 47819, lalu 8181)</small>
   <label>API key <input id="key" size="18"></label>
   <button id="btnConnect">Hubungkan (WebSocket)</button>
   <button id="btnPrinters">Daftar printer</button>
@@ -54,7 +54,7 @@ function log(m) { var l = document.getElementById("log"); l.textContent = new Da
 function $(id) { return document.getElementById(id); }
 function client() {
   if (ap) ap.disconnect();
-  ap = new MyLabAutoPrint({ port: +$("port").value, apiKey: $("key").value });
+  ap = new MyLabAutoPrint({ port: +$("port").value || undefined, apiKey: $("key").value });
   ap.onStatus(function (s) { $("st").textContent = s; $("st").className = s; });
   ap.onJob(function (j) { log("job " + j.id + " [" + j.type + " -> " + j.printer + "]: " + j.status + (j.error ? " - " + j.error : "")); });
   ap.onPrinters(function (p) { fill(p); });

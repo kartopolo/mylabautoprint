@@ -2,4 +2,5 @@
 # Hapus tanda # untuk mengaktifkan. Kosongkan file ini setelah rilis jika tidak perlu lagi.
 # update.repo="kartopolo/mylabautoprint-releases"
 # allowed_origins=["https://app.domainkamu.com"]
-# port=8181
+# v1.0.1: pindahkan port default lama 8181 -> 47819 (juga dimigrasi otomatis di kode, lihat config_version)
+port=47819

@@ -1,5 +1,5 @@
 {
-  "port": 8181,
+  "port": 47819,
   "allowed_origins": ["*"],
   "api_key": "",
   "autostart": true,

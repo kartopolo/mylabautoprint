@@ -12,12 +12,13 @@ idealnya PC bersih (tanpa QZ Tray), dengan minimal 1 printer biasa + 1 printer t
 | A4 | Settings → Apps | "MyLab AutoPrint" versi 1.0.0 ada, ada tombol Uninstall | |
 | A5 | Start Menu | Folder "MyLab AutoPrint" berisi shortcut aplikasi + Uninstall | |
 | A6 | Buka `C:\ProgramData\MyLabAutoPrint\` | Ada `config.json` dan `logs\mylabautoprint.log` | |
+| A6b | Buka `http://127.0.0.1:47819/status` di browser | JSON `"ok":true`, `"port":47819` | |
 | A7 | Task Manager → Details → `mylabautoprint.exe` | Memory (private working set) idle ± 10–20 MB — **catat angkanya** | |
 
 ## B. Tray
 | # | Langkah | Hasil | ✅/❌ |
 |---|---|---|---|
-| B1 | Klik kiri ikon | Browser membuka `http://127.0.0.1:8181/` (Pengaturan) | |
+| B1 | Klik kiri ikon | Browser membuka `http://127.0.0.1:47819/` (Pengaturan) | |
 | B2 | Klik kanan → Status | Kotak pesan: versi, port, jumlah printer, printer default | |
 | B3 | Klik kanan → Lihat Log | Log terbuka di Notepad | |
 | B4 | Klik kanan → Cek Update | Pesan "Sudah versi terbaru" atau info update / error yang jelas | |
@@ -31,7 +32,7 @@ idealnya PC bersih (tanpa QZ Tray), dengan minimal 1 printer biasa + 1 printer t
 | C1 | Dropdown printer | Semua printer Windows tampil | |
 | C2 | Pilih printer default per tipe → Simpan | "Tersimpan ✓", tetap tersimpan setelah refresh | |
 | C3 | Matikan "Jalan otomatis" → Simpan → restart Windows | Aplikasi TIDAK jalan otomatis. Nyalakan lagi sesudahnya | |
-| C4 | Ganti port ke 8282 → Simpan | Browser pindah ke `127.0.0.1:8282`; kembalikan ke 8181 | |
+| C4 | Ganti port ke 8282 → Simpan | Browser pindah ke `127.0.0.1:8282`; kembalikan ke 47819 (default) | |
 | C5 | Riwayat job & Log | Terisi setelah tes print | |
 
 ## D. Printing (bagian terpenting)
@@ -66,6 +67,7 @@ Siapkan rilis v1.0.1 (GitHub Actions atau `./release.sh 1.0.1 "tes" --publish`).
 | F3 | Tray → Status | Versi 1.0.1; setting printer/port lama tetap | |
 | F4 | Mode `notify`: tunggu cek otomatis (atau restart aplikasi, cek setelah ±20 detik) | Ikon dapat titik oranye + menu "Update tersedia vX" | |
 | F5 | Rilis dengan override (mis. `defaults.paper="A4"` + lock) | Setelah update nilai berubah, field terkunci (abu-abu), ada `config.json.bak-*` | |
+| F7 | PC yang masih v1.0.0 (port 8181) → update ke v1.0.1 | Setelah update, `http://127.0.0.1:47819/status` jalan; `test.html` (port kosong/auto) tetap terhubung | |
 | F6 | Ubah 1 karakter di `latest.json` di release (tanpa tanda tangan ulang) → Cek Update | Ditolak: "signature ... TIDAK COCOK" | |
 
 ## G. Uninstall

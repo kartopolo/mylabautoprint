@@ -2,7 +2,8 @@
  * mylabautoprint.js - client library for MyLab AutoPrint (local print server)
  * Works in browsers (and Node 20+ with --experimental-websocket / Node 22+).
  *
- *   const ap = new MyLabAutoPrint({ port: 8181, apiKey: "" });
+ *   const ap = new MyLabAutoPrint({ apiKey: "" });     // port auto-detected (47819, then legacy 8181)
+ *   // or fixed: new MyLabAutoPrint({ port: 47819 })    // or a custom list: { ports: [47819, 50001] }
  *   ap.onStatus(s => console.log("koneksi:", s));      // connecting|connected|disconnected
  *   ap.onJob(job => console.log(job.id, job.status));  // queued|printing|done|error
  *   await ap.connect();                                // WebSocket (optional, auto-reconnect)
@@ -19,7 +20,12 @@
   function MyLabAutoPrint(opts) {
     opts = opts || {};
     this.host = opts.host || "127.0.0.1";
-    this.port = opts.port || 8181;
+    // Port discovery: an explicit `port` is used as-is; otherwise the ports in
+    // `ports` are probed in order (GET /status) and the first answering one wins.
+    this.ports = opts.port ? [opts.port] : (opts.ports || MyLabAutoPrint.DEFAULT_PORTS).slice();
+    this.port = this.ports[0];
+    this._discovered = !!opts.port;
+    this._discovering = null;
     this.apiKey = opts.apiKey || "";
     this.autoReconnect = opts.autoReconnect !== false;
     this.reconnectDelay = opts.reconnectDelay || 3000;
@@ -35,6 +41,9 @@
     this._wantWS = false;
   }
 
+  /** Ports probed when no explicit port is given: current default first, then the v1.0.0 legacy port. */
+  MyLabAutoPrint.DEFAULT_PORTS = [47819, 8181];
+
   var P = MyLabAutoPrint.prototype;
 
   P.baseURL = function () { return "http://" + this.host + ":" + this.port; };
@@ -49,7 +58,55 @@
   P._setStatus = function (s) { if (this.status !== s) { this.status = s; this._emit("status", s); } };
 
   // ---- HTTP ----------------------------------------------------------------
+  /** Find the port the local app listens on (tries `ports` in order). Resolves with the port. */
+  P.discover = function (force) {
+    var self = this;
+    if (this._discovered && !force) return Promise.resolve(this.port);
+    if (this._discovering) return this._discovering;
+    var i = 0;
+    function next() {
+      if (i >= self.ports.length) {
+        self._discovering = null;
+        return Promise.reject(new Error("MyLab AutoPrint tidak ditemukan di port " + self.ports.join(", ")));
+      }
+      var port = self.ports[i++];
+      return probe(self.host, port).then(function (ok) {
+        if (ok) { self.port = port; self._discovered = true; self._discovering = null; return port; }
+        return next();
+      });
+    }
+    this._discovering = next();
+    return this._discovering;
+  };
+
+  function probe(host, port) {
+    var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    var t = setTimeout(function () { if (ctrl) ctrl.abort(); }, 1500);
+    return fetch("http://" + host + ":" + port + "/status", ctrl ? { signal: ctrl.signal } : {})
+      .then(function (r) { return r.json(); })
+      .then(function (j) { return !!(j && j.app === "MyLab AutoPrint"); }, function () { return false; })
+      .then(function (ok) { clearTimeout(t); return ok; });
+  }
+
   P.request = function (method, path, body) {
+    var self = this;
+    return this.discover().then(function () {
+      return self._request(method, path, body).catch(function (e) {
+        // network error (no HTTP status): the app may have moved to another port -> rediscover once
+        if (e.status === undefined && self.ports.length > 1) {
+          self._discovered = false;
+          return self.discover(true).then(function () { return self._request(method, path, body); });
+        }
+        throw e;
+      });
+    }, function (e) {
+      // nothing found: still try the first port so the caller gets a normal network error
+      if (self.ports.length > 1) throw e;
+      return self._request(method, path, body);
+    });
+  };
+
+  P._request = function (method, path, body) {
     var headers = {};
     if (body !== undefined) headers["Content-Type"] = "application/json";
     if (this.apiKey) headers["X-API-Key"] = this.apiKey;
@@ -85,6 +142,11 @@
     var self = this;
     this._wantWS = true;
     if (this._wsOpen()) return Promise.resolve();
+    return this.discover().catch(function () { /* fall through: try current port */ }).then(function () { return self._connectWS(); });
+  };
+
+  P._connectWS = function () {
+    var self = this;
     return new Promise(function (resolve, reject) {
       var url = "ws://" + self.host + ":" + self.port + "/ws" + (self.apiKey ? "?apiKey=" + encodeURIComponent(self.apiKey) : "");
       var ws;
@@ -119,7 +181,11 @@
         Object.keys(self._pending).forEach(function (id) { self._pending[id].reject(new Error("koneksi terputus")); delete self._pending[id]; });
         if (!opened) reject(new Error("MyLab AutoPrint tidak terhubung di " + url));
         if (self._wantWS && self.autoReconnect) {
-          setTimeout(function () { if (self._wantWS) self.connect().catch(function () {}); }, self.reconnectDelay);
+          setTimeout(function () {
+            if (!self._wantWS) return;
+            if (self.ports.length > 1) self._discovered = false; // app may have moved port (e.g. after update)
+            self.connect().catch(function () {});
+          }, self.reconnectDelay);
         }
       };
       ws.onerror = function () { /* onclose follows */ };

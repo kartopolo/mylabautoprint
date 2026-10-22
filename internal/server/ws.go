@@ -50,8 +50,9 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	defer s.Mgr.Unsubscribe(jobs)
 	s.wsMu.Lock()
 	s.wsSubs[out] = struct{}{}
+	s.wsKick[out] = func() { _ = c.Close(websocket.StatusServiceRestart, "port berubah") }
 	s.wsMu.Unlock()
-	defer func() { s.wsMu.Lock(); delete(s.wsSubs, out); s.wsMu.Unlock() }()
+	defer func() { s.wsMu.Lock(); delete(s.wsSubs, out); delete(s.wsKick, out); s.wsMu.Unlock() }()
 	origin := r.Header.Get("Origin")
 
 	// writer

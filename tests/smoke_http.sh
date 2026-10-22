@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# HTTP smoke test against a running build (linux stub or Windows), default port 8181.
-B="${BASE:-http://127.0.0.1:8181}"
+# HTTP smoke test against a running build (linux stub or Windows), default port 47819.
+B="${BASE:-http://127.0.0.1:47819}"
 pass=0; fail=0
 check() { # name, condition-output, expected-substring
   if grep -q -- "$3" <<<"$2"; then echo "PASS  $1"; pass=$((pass+1)); else echo "FAIL  $1 -> $2"; fail=$((fail+1)); fi
@@ -32,14 +32,14 @@ PRE=$(curl -s -i -XOPTIONS $B/print -H 'Origin: https://app.example.com' -H 'Acc
 check "preflight 204"  "$PRE" '204'
 check "preflight PNA"  "$PRE" 'Access-Control-Allow-Private-Network: true'
 check "preflight ACAO" "$PRE" 'Access-Control-Allow-Origin: https://app.example.com'
-check "DNS rebinding host blocked" "$(curl -s -H 'Host: evil.com:8181' $B/status)" 'host tidak diizinkan'
+check "DNS rebinding host blocked" "$(curl -s -H 'Host: evil.com:47819' $B/status)" 'host tidak diizinkan'
 # restrict origins + api key
 curl -s -XPUT $B/config -d '{"allowed_origins":["https://*.mylab.id","https://app.example.com"],"api_key":"rahasia123"}' >/dev/null
 check "origin blocked"  "$(curl -s -XPOST $B/print -H 'Origin: https://evil.com' -d '{"type":"text","text":"x"}')" 'tidak diizinkan'
 check "api key needed"  "$(curl -s -XPOST $B/print -H 'Origin: https://app.example.com' -d '{"type":"text","text":"x"}')" 'API key salah'
 check "api key ok"      "$(curl -s -XPOST $B/print -H 'Origin: https://app.example.com' -H 'X-API-Key: rahasia123' -d '{"type":"text","text":"x"}')" '"status":"done"'
 check "wildcard origin" "$(curl -s -XPOST $B/print -H 'Origin: https://kasir.mylab.id' -H 'X-API-Key: rahasia123' -d '{"type":"text","text":"x"}')" '"status":"done"'
-check "self origin no key" "$(curl -s -XPOST $B/print -H 'Origin: http://127.0.0.1:8181' -d '{"type":"text","text":"x"}')" '"status":"done"'
+check "self origin no key" "$(curl -s -XPOST $B/print -H 'Origin: http://127.0.0.1:47819' -d '{"type":"text","text":"x"}')" '"status":"done"'
 curl -s -XPUT $B/config -d '{"allowed_origins":["*"],"api_key":""}' >/dev/null
 # per-type default printer
 curl -s -XPUT $B/config -d '{"printers":{"text":"Stub Laser A4"}}' >/dev/null

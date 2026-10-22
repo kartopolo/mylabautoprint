@@ -1,7 +1,7 @@
 # MyLab AutoPrint
 
 Aplikasi print otomatis (silent print) yang ringan untuk Windows, sebagai pengganti QZ Tray.
-Web app kamu mengirim perintah print ke `http://127.0.0.1:8181` (HTTP atau WebSocket), lalu
+Web app kamu mengirim perintah print ke `http://127.0.0.1:47819` (HTTP atau WebSocket), lalu
 MyLab AutoPrint langsung mencetak ke printer klien **tanpa dialog print**.
 
 - Satu file `mylabautoprint.exe` (Go, ±8,6 MB), tanpa Java / .NET / runtime lain.
@@ -40,7 +40,7 @@ Menu ikon tray (klik kanan):
 
 | Menu | Fungsi |
 |---|---|
-| **Pengaturan** | Membuka `http://127.0.0.1:8181/` di browser (pilih printer, tes print, dsb.) |
+| **Pengaturan** | Membuka `http://127.0.0.1:47819/` di browser (pilih printer, tes print, dsb.) |
 | **Status** | Versi, port, jumlah printer, job terakhir |
 | **Lihat Log** | Membuka file log di Notepad |
 | **Cek Update** | Cek versi terbaru sekarang |
@@ -61,14 +61,22 @@ Lokasi file:
 ## 2. Pakai dari web app (API)
 
 Server hanya mendengarkan di `127.0.0.1` (tidak bisa diakses dari komputer lain).
-Port default **8181**.
+Port default **47819** (sengaja port yang jarang dipakai, di bawah rentang port dinamis Windows 49152–65535).
+Versi 1.0.0 memakai 8181; saat update ke 1.0.1+ config lama yang masih 8181 otomatis dipindah ke 47819.
+
+**Bagaimana web app menemukan port?** `mylabautoprint.js` tanpa opsi `port` akan mencoba berurutan
+`GET http://127.0.0.1:<port>/status` di port **47819** lalu **8181** (legacy) dan memakai yang pertama menjawab.
+Jika koneksi putus (mis. aplikasi baru di-update dan pindah port), port dicari ulang otomatis.
+- Port custom di klien: `new MyLabAutoPrint({ port: 50001 })` (hanya port itu), atau
+  `new MyLabAutoPrint({ ports: [50001, 47819, 8181] })` (dicoba berurutan).
+- Tanpa library: panggil `/status` di port-port tersebut sendiri; respons berisi `"app":"MyLab AutoPrint"` dan `"port"`.
 
 ### 2.1 Cara termudah: `mylabautoprint.js`
 
 ```html
 <script src="mylabautoprint.js"></script>
 <script>
-  const ap = new MyLabAutoPrint({ port: 8181, apiKey: "" });   // apiKey jika di-set di Pengaturan
+  const ap = new MyLabAutoPrint({ apiKey: "" });   // port dideteksi otomatis (47819 → 8181); apiKey jika di-set
   ap.onStatus(s => console.log("AutoPrint:", s));              // connecting | connected | disconnected
   ap.onJob(job => console.log(job.id, job.status, job.error)); // queued | printing | done | error
 
@@ -139,13 +147,13 @@ Printer jaringan langsung (raw/text): `"printer": "tcp://192.168.1.50:9100"` (po
 Contoh curl:
 
 ```bash
-curl -X POST http://127.0.0.1:8181/print -H "Content-Type: application/json" \
+curl -X POST http://127.0.0.1:47819/print -H "Content-Type: application/json" \
   -d '{"type":"pdf","url":"https://contoh.com/a.pdf","printer":"HP LaserJet","copies":2}'
 ```
 
-### 2.3 WebSocket `ws://127.0.0.1:8181/ws`
+### 2.3 WebSocket `ws://127.0.0.1:47819/ws`
 
-API key (jika ada): `ws://127.0.0.1:8181/ws?apiKey=KEY`.
+API key (jika ada): `ws://127.0.0.1:47819/ws?apiKey=KEY`.
 
 Kirim: `{"id":"1","action":"print","params":{...sama seperti POST /print...}}`
 Action lain: `printers`, `status`, `jobs`, `ping`.
@@ -173,7 +181,8 @@ Urutan prioritas: **bawaan aplikasi** < `defaults.json` (di folder program, dari
 
 ```json
 {
-  "port": 8181,
+  "config_version": 2,
+  "port": 47819,
   "allowed_origins": ["*"],
   "api_key": "",
   "autostart": true,
@@ -195,7 +204,8 @@ Urutan prioritas: **bawaan aplikasi** < `defaults.json` (di folder program, dari
 
 | Key | Arti |
 |---|---|
-| `port` | Port API & pengaturan (ganti di Pengaturan → otomatis pindah tanpa restart) |
+| `port` | Port API & pengaturan, default 47819 (ganti di Pengaturan → otomatis pindah tanpa restart). Kalau diganti ke port selain 47819/8181, web app harus diberi `port`/`ports` yang sama |
+| `config_version` | Dipakai untuk migrasi otomatis config lama (jangan diubah) |
 | `allowed_origins` | Website yang boleh print. `*` = semua; `https://app.domainkamu.com`; wildcard `https://*.domainkamu.com`; `null` = file lokal |
 | `api_key` | Jika diisi, request dari website wajib kirim header `X-API-Key` (atau `?apiKey=` untuk WS) |
 | `autostart` | Jalan saat Windows nyala (HKCU\...\Run) |
@@ -361,13 +371,15 @@ tests/update_test.sh
 
 **Web app bilang "MyLab AutoPrint tidak terdeteksi"**
 - Cek ikon tray ada. Kalau tidak: Start Menu → MyLab AutoPrint.
-- Buka `http://127.0.0.1:8181/status` di browser klien. Harus muncul JSON `"ok":true`.
+- Buka `http://127.0.0.1:47819/status` di browser klien. Harus muncul JSON `"ok":true`.
 - Pastikan port di web app sama dengan port di Pengaturan.
 
-**Port sudah dipakai (muncul pesan "port 8181 tidak bisa dipakai")**
-- Ada aplikasi lain di port itu. Cek: `netstat -ano | findstr :8181` (kolom terakhir = PID, lihat di Task Manager).
+**Port sudah dipakai (muncul pesan "port 47819 tidak bisa dipakai")**
+- Ada aplikasi lain di port itu. Cek: `netstat -ano | findstr :47819` (kolom terakhir = PID, lihat di Task Manager).
 - Ganti port: edit `C:\ProgramData\MyLabAutoPrint\config.json` → `"port": 8282`, lalu jalankan lagi aplikasi.
-  Jangan lupa ubah port di web app (`new MyLabAutoPrint({port: 8282})`). Atau kirim override `port=8282` lewat rilis.
+  Di web app pakai `new MyLabAutoPrint({ ports: [8282, 47819, 8181] })`. Atau kirim override `port=8282` lewat rilis.
+- Aplikasi tidak otomatis mencari port lain kalau port terpakai (supaya web app selalu tahu port-nya); pesan error
+  muncul dan aplikasi berhenti sampai port diganti.
 
 **Firewall / antivirus**
 - Server hanya di `127.0.0.1`, jadi Windows Firewall biasanya tidak bertanya apa-apa.
@@ -417,8 +429,17 @@ tests/update_test.sh
 
 - Hanya listen di `127.0.0.1`; header `Host` dicek (anti DNS-rebinding).
 - Origin browser dicek terhadap `allowed_origins`; opsional API key.
-  **Default `*` = semua website bisa mengirim print.** Untuk produksi, set `allowed_origins` ke domain kamu
-  (di `installer/defaults.json` sebelum build, atau override + lock lewat rilis).
+  **Saat ini (v1.0.x) sengaja terbuka: `allowed_origins = ["*"]`, artinya website mana pun bisa mengirim print.**
+  Cara membatasi nanti (pilih salah satu):
+  1. Per klien: *Pengaturan → Website yang diizinkan*, atau `PUT /config` dengan
+     `{"allowed_origins":["https://app.domainkamu.com","https://*.domainkamu.com"]}`, atau edit `config.json`.
+  2. Untuk semua instalasi baru: ubah `installer/defaults.json` sebelum build.
+  3. Untuk semua klien yang sudah terpasang: di rilis berikutnya isi `release/overrides.txt` dengan
+     `allowed_origins=["https://app.domainkamu.com"]` dan (opsional) `release/locks.txt` dengan `allowed_origins`
+     supaya klien tidak bisa mengubahnya lagi.
+- **API key (opsional, tetap tersedia):** isi `api_key` (Pengaturan / `PUT /config {"api_key":"..."}` / override
+  `api_key="..."`). Setelah itu request dari website wajib mengirim header `X-API-Key` (WebSocket: `?apiKey=`),
+  di `mylabautoprint.js`: `new MyLabAutoPrint({ apiKey: "..." })`. Kosong = tanpa API key.
 - Halaman Pengaturan hanya bisa diakses dari komputer itu sendiri; install update hanya bisa dipicu dari situ atau tray.
 - Update: manifest ed25519 + sha256 installer. Public key di dalam exe, bukan di config.
 

@@ -1,6 +1,6 @@
 // Node 20: node --experimental-websocket ws_client_test.js
 const MyLabAutoPrint = require("../client/mylabautoprint.js");
-const ap = new MyLabAutoPrint({ port: +(process.env.PORT || 8181), reconnectDelay: 500 });
+const ap = new MyLabAutoPrint(process.env.PORT ? { port: +process.env.PORT, reconnectDelay: 500 } : { reconnectDelay: 500 }); // default: auto-discover
 const events = [], statuses = [];
 let printersEv = null;
 ap.onJob(j => events.push(j.status));
@@ -9,6 +9,7 @@ ap.onPrinters(p => (printersEv = p));
 const ok = (c, m) => { console.log((c ? "PASS  " : "FAIL  ") + m); if (!c) process.exitCode = 1; };
 (async () => {
   ok(await ap.isAvailable(), "isAvailable");
+  ok(ap.port === +(process.env.EXPECT_PORT || 47819), "discovered port " + ap.port);
   await ap.connect();
   ok(ap.status === "connected", "ws connected");
   await new Promise(r => setTimeout(r, 300));

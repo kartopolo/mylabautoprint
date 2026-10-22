@@ -46,6 +46,8 @@ type Update struct {
 
 // Config is the full application configuration.
 type Config struct {
+	// ConfigVersion is used for one-time migrations of old config files.
+	ConfigVersion  int                        `json:"config_version"`
 	Port           int                        `json:"port"`
 	AllowedOrigins []string                   `json:"allowed_origins"`
 	APIKey         string                     `json:"api_key"`
@@ -57,10 +59,20 @@ type Config struct {
 	Locked         map[string]json.RawMessage `json:"locked,omitempty"`
 }
 
+// DefaultPort is the default local API port. It is deliberately uncommon and
+// below the Windows dynamic/ephemeral range (49152-65535).
+const DefaultPort = 47819
+
+// LegacyPort was the default port of v1.0.0.
+const LegacyPort = 8181
+
+// CurrentConfigVersion is bumped whenever a migration is added.
+const CurrentConfigVersion = 2
+
 // Defaults returns the built-in default configuration.
 func Defaults() Config {
 	return Config{
-		Port:           8181,
+		Port:           DefaultPort,
 		AllowedOrigins: []string{"*"},
 		APIKey:         "",
 		Autostart:      true,
@@ -109,12 +121,24 @@ func Load(path, shippedDefaults string) (*Store, error) {
 	default:
 		return nil, err
 	}
+	migrate(&cfg)
 	sanitize(&cfg)
 	if err := enforceLocked(&cfg); err != nil {
 		return nil, err
 	}
 	s.cfg = cfg
 	return s, s.saveLocked()
+}
+
+// migrate upgrades configs written by older versions.
+func migrate(c *Config) {
+	if c.ConfigVersion < 2 {
+		// v1.0.0 used port 8181 by default; move untouched configs to the new default.
+		if c.Port == LegacyPort {
+			c.Port = DefaultPort
+		}
+	}
+	c.ConfigVersion = CurrentConfigVersion
 }
 
 func stripBOM(b []byte) []byte { return []byte(strings.TrimPrefix(string(b), "\ufeff")) }

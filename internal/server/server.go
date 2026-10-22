@@ -50,12 +50,14 @@ type Server struct {
 	port    int
 	wsMu    sync.Mutex
 	wsSubs  map[chan any]struct{}
+	wsKick  map[chan any]func()
 }
 
 // Start binds 127.0.0.1:<port> and serves in the background.
 func (s *Server) Start() error {
 	s.started = time.Now()
 	s.wsSubs = map[chan any]struct{}{}
+	s.wsKick = map[chan any]func(){}
 	return s.listen(s.Cfg.Get().Port)
 }
 
@@ -97,6 +99,13 @@ func (s *Server) Rebind(port int) error {
 		_ = old.Shutdown(ctx)
 		cancel()
 	}
+	// Shutdown does not close hijacked WebSocket connections: close them so
+	// clients reconnect (and re-discover the new port).
+	s.wsMu.Lock()
+	for _, kick := range s.wsKick {
+		go kick()
+	}
+	s.wsMu.Unlock()
 	if err := s.listen(port); err != nil {
 		s.Logger.Printf("pindah port gagal, kembali ke %d: %v", oldPort, err)
 		return errors.Join(err, s.listen(oldPort))
