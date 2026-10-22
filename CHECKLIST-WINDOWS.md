@@ -76,10 +76,10 @@ Siapkan rilis berikutnya, mis. v1.0.4 (GitHub Actions atau `./release.sh 1.0.4 "
 |---|---|---|---|
 | F1 | Tray → Cek Update | "Versi baru tersedia v1.0.4" → Ya | |
 | F2 | UAC → Ya | Aplikasi tertutup, terpasang ulang diam-diam, ikon muncul lagi dalam ±10 detik | |
-| F3 | Tray → Status | Versi 1.0.1; setting printer/port lama tetap | |
+| F3 | Tray → Status | Versi 1.0.4; setting printer/port lama tetap | |
 | F4 | Mode `notify`: tunggu cek otomatis (atau restart aplikasi, cek setelah ±20 detik) | Ikon dapat titik oranye + menu "Update tersedia vX" | |
 | F5 | Rilis dengan override (mis. `defaults.paper="A4"` + lock) | Setelah update nilai berubah, field terkunci (abu-abu), ada `config.json.bak-*` | |
-| F7 | PC yang masih v1.0.0 (port 8181) → update ke v1.0.1 | Setelah update, `http://127.0.0.1:47819/status` jalan; `test.html` (port kosong/auto) tetap terhubung | |
+| F7 | PC yang masih v1.0.0 (port 8181) → update ke versi terbaru (≥1.0.1) | Setelah update, `http://127.0.0.1:47819/status` jalan; `test.html` (port kosong/auto) tetap terhubung | |
 | F6 | Ubah 1 karakter di `latest.json` di release (tanpa tanda tangan ulang) → Cek Update | Ditolak: "signature ... TIDAK COCOK" | |
 
 ## G. Uninstall
