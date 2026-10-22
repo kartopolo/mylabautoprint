@@ -10,6 +10,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -32,6 +34,7 @@ var (
 	procEndPagePrinter      = winspool.NewProc("EndPagePrinter")
 	procWritePrinter        = winspool.NewProc("WritePrinter")
 	procDocumentPropertiesW = winspool.NewProc("DocumentPropertiesW")
+	procDeviceCapabilitiesW = winspool.NewProc("DeviceCapabilitiesW")
 
 	procCreateDCW            = gdi32.NewProc("CreateDCW")
 	procDeleteDC             = gdi32.NewProc("DeleteDC")
@@ -57,8 +60,22 @@ const (
 	printerEnumConnections = 0x4
 	printerAttrNetwork     = 0x10
 
-	dmOrientation = 0x1
-	dmPaperSize   = 0x2
+	dmOrientation   = 0x1
+	dmPaperSize     = 0x2
+	dmPaperLength   = 0x4
+	dmPaperWidth    = 0x8
+	dmDefaultSource = 0x200
+	dmColor         = 0x800
+	dmDuplex        = 0x1000
+
+	dcPapers      = 2
+	dcPaperSize   = 3
+	dcBins        = 6
+	dcDuplex      = 7
+	dcBinNames    = 12
+	dcPaperNames  = 16
+	dcCopies      = 18
+	dcColorDevice = 32
 	dmOutBuffer   = 2
 	dmInBuffer    = 8
 
@@ -227,10 +244,64 @@ func printRaw(printer, jobName, datatype string, data []byte, copies int) error 
 	return nil
 }
 
-var paperSizes = map[string]int16{"letter": 1, "legal": 5, "a3": 8, "a4": 9, "a5": 11, "b5": 13, "f4": 14, "folio": 14}
+var paperSizes = map[string]int16{"letter": 1, "tabloid": 3, "legal": 5, "statement": 6, "executive": 7,
+	"a3": 8, "a4": 9, "a5": 11, "b4": 12, "b5": 13, "f4": 14, "folio": 14, "a6": 70}
 
-// devMode builds a DEVMODE for the printer with orientation / paper applied.
-func devMode(printer, orientation, paper string) []byte {
+var binNames = map[string]int16{"upper": 1, "onlyone": 1, "lower": 2, "middle": 3, "manual": 4, "envelope": 5,
+	"auto": 7, "automatic": 7, "tractor": 8, "largecapacity": 11, "cassette": 14}
+
+var customPaper = regexp.MustCompile(`^(\d+(?:[.,]\d+)?)\s*(?:[x×*]\s*(\d+(?:[.,]\d+)?))?\s*mm$`)
+
+func parseMM(s string) float64 {
+	f, _ := strconv.ParseFloat(strings.ReplaceAll(s, ",", "."), 64)
+	return f
+}
+
+func devCaps(printer string, cap uintptr, out unsafe.Pointer) int {
+	name := u16(printer)
+	r, _, _ := procDeviceCapabilitiesW.Call(uintptr(unsafe.Pointer(name)), 0, cap, uintptr(out), 0)
+	return int(int32(r))
+}
+
+// Capabilities implements Backend using DeviceCapabilitiesW.
+func (WinBackend) Capabilities(printer string) (*Capabilities, error) {
+	c := &Capabilities{Printer: printer, Papers: []Paper{}, Bins: []Bin{}}
+	n := devCaps(printer, dcPapers, nil)
+	if n < 0 {
+		return nil, fmt.Errorf("printer %q tidak ditemukan / driver tidak menjawab", printer)
+	}
+	if n > 0 && n < 2000 {
+		ids := make([]uint16, n)
+		devCaps(printer, dcPapers, unsafe.Pointer(&ids[0]))
+		names := make([]uint16, n*64)
+		devCaps(printer, dcPaperNames, unsafe.Pointer(&names[0]))
+		sizes := make([]int32, n*2)
+		devCaps(printer, dcPaperSize, unsafe.Pointer(&sizes[0]))
+		for i := 0; i < n; i++ {
+			c.Papers = append(c.Papers, Paper{ID: int(ids[i]), Name: windows.UTF16ToString(names[i*64 : i*64+64]),
+				WidthMM: float64(sizes[i*2]) / 10, HeightMM: float64(sizes[i*2+1]) / 10})
+		}
+	}
+	if n := devCaps(printer, dcBins, nil); n > 0 && n < 500 {
+		ids := make([]uint16, n)
+		devCaps(printer, dcBins, unsafe.Pointer(&ids[0]))
+		names := make([]uint16, n*24)
+		devCaps(printer, dcBinNames, unsafe.Pointer(&names[0]))
+		for i := 0; i < n; i++ {
+			c.Bins = append(c.Bins, Bin{ID: int(ids[i]), Name: windows.UTF16ToString(names[i*24 : i*24+24])})
+		}
+	}
+	c.Duplex = devCaps(printer, dcDuplex, nil) == 1
+	c.Color = devCaps(printer, dcColorDevice, nil) == 1
+	if v := devCaps(printer, dcCopies, nil); v > 0 {
+		c.MaxCopies = v
+	}
+	return c, nil
+}
+
+// devMode builds a DEVMODE for the printer with the job settings applied.
+func devMode(p *Payload) []byte {
+	printer := p.Printer
 	h, err := openPrinter(printer)
 	if err != nil {
 		return nil
@@ -246,17 +317,72 @@ func devMode(printer, orientation, paper string) []byte {
 	if int32(r) < 0 {
 		return nil
 	}
+	put16 := func(off int, v int16) { binary.LittleEndian.PutUint16(dm[off:], uint16(v)) }
 	fields := binary.LittleEndian.Uint32(dm[72:])
-	if orientation == "landscape" {
-		binary.LittleEndian.PutUint16(dm[76:], 2)
+	switch p.Orientation {
+	case "landscape":
+		put16(76, 2)
 		fields |= dmOrientation
-	} else if orientation == "portrait" {
-		binary.LittleEndian.PutUint16(dm[76:], 1)
+	case "portrait":
+		put16(76, 1)
 		fields |= dmOrientation
 	}
-	if ps, ok := paperSizes[strings.ToLower(paper)]; ok {
-		binary.LittleEndian.PutUint16(dm[78:], uint16(ps))
-		fields |= dmPaperSize
+	if paper := strings.ToLower(strings.TrimSpace(p.Paper)); paper != "" {
+		if ps, ok := paperSizes[paper]; ok {
+			put16(78, ps)
+			fields |= dmPaperSize
+		} else if id, ok := driverPaper(printer, paper); ok {
+			put16(78, int16(id))
+			fields |= dmPaperSize
+		} else if m := customPaper.FindStringSubmatch(paper); m != nil {
+			w, ht := parseMM(m[1]), 297.0
+			if m[2] != "" {
+				ht = parseMM(m[2])
+			}
+			if id, ok := driverPaperBySize(printer, w, ht); ok {
+				// the driver has a form with (almost) this size, e.g. "4 x 6 in" for 100x150mm
+				put16(78, int16(id))
+				fields |= dmPaperSize
+			} else {
+				// custom size: dmPaperLength/dmPaperWidth (0.1 mm) override dmPaperSize
+				put16(78, 0)
+				put16(80, int16(ht*10))
+				put16(82, int16(w*10))
+				fields = fields&^dmPaperSize | dmPaperLength | dmPaperWidth
+				if p.Warn != nil {
+					p.Warn(fmt.Sprintf("kertas custom %gx%g mm dikirim ke driver; jika driver tidak mendukung ukuran custom, kertas default printer dipakai (buat form kertas di Windows / driver)", w, ht))
+				}
+			}
+		} else if p.Warn != nil {
+			p.Warn(fmt.Sprintf("ukuran kertas %q tidak dikenal printer; memakai default printer", p.Paper))
+		}
+	}
+	if p.Tray != "" {
+		if id, ok := resolveBin(printer, p.Tray); ok {
+			put16(88, int16(id))
+			fields |= dmDefaultSource
+		} else if p.Warn != nil {
+			p.Warn(fmt.Sprintf("tray %q tidak ditemukan; memakai default printer", p.Tray))
+		}
+	}
+	switch p.Color {
+	case "mono":
+		put16(92, 1)
+		fields |= dmColor
+	case "color":
+		put16(92, 2)
+		fields |= dmColor
+	}
+	switch p.Duplex {
+	case "simplex":
+		put16(94, 1)
+		fields |= dmDuplex
+	case "long":
+		put16(94, 2)
+		fields |= dmDuplex
+	case "short":
+		put16(94, 3)
+		fields |= dmDuplex
 	}
 	binary.LittleEndian.PutUint32(dm[72:], fields)
 	out := make([]byte, n)
@@ -268,14 +394,57 @@ func devMode(printer, orientation, paper string) []byte {
 	return out
 }
 
+func driverPaper(printer, paper string) (int, bool) {
+	c, err := WinBackend{}.Capabilities(printer)
+	if err != nil {
+		return 0, false
+	}
+	for _, pp := range c.Papers {
+		if strings.EqualFold(strings.TrimSpace(pp.Name), paper) {
+			return pp.ID, true
+		}
+	}
+	return 0, false
+}
+
+func driverPaperBySize(printer string, w, h float64) (int, bool) {
+	c, err := WinBackend{}.Capabilities(printer)
+	if err != nil {
+		return 0, false
+	}
+	near := func(a, b float64) bool { return a-b < 2.6 && b-a < 2.6 }
+	for _, pp := range c.Papers {
+		if (near(pp.WidthMM, w) && near(pp.HeightMM, h)) || (near(pp.WidthMM, h) && near(pp.HeightMM, w)) {
+			return pp.ID, true
+		}
+	}
+	return 0, false
+}
+
+func resolveBin(printer, tray string) (int, bool) {
+	if n, err := strconv.Atoi(tray); err == nil && n > 0 {
+		return n, true
+	}
+	if c, err := (WinBackend{}).Capabilities(printer); err == nil {
+		for _, b := range c.Bins {
+			if strings.EqualFold(strings.TrimSpace(b.Name), strings.TrimSpace(tray)) {
+				return b.ID, true
+			}
+		}
+	}
+	id, ok := binNames[strings.ToLower(strings.ReplaceAll(tray, " ", ""))]
+	return int(id), ok
+}
+
 type gdiDoc struct {
 	hdc        uintptr
-	w, h       int
+	w, h       int // printable area (minus margins)
+	ox, oy     int // margin offset
 	dpiX, dpiY int
 }
 
 func startGDIDoc(p *Payload) (*gdiDoc, error) {
-	dm := devMode(p.Printer, p.Orientation, p.Paper)
+	dm := devMode(p)
 	var dmPtr uintptr
 	if len(dm) > 0 {
 		dmPtr = uintptr(unsafe.Pointer(&dm[0]))
@@ -291,8 +460,15 @@ func startGDIDoc(p *Payload) (*gdiDoc, error) {
 		procDeleteDC.Call(hdc)
 		return nil, fmt.Errorf("StartDoc gagal: %v", err)
 	}
-	cap := func(i uintptr) int { v, _, _ := procGetDeviceCaps.Call(hdc, i); return int(int32(v)) }
-	return &gdiDoc{hdc: hdc, w: cap(horzRes), h: cap(vertRes), dpiX: cap(logPixelsX), dpiY: cap(logPixelsY)}, nil
+	dc := func(i uintptr) int { v, _, _ := procGetDeviceCaps.Call(hdc, i); return int(int32(v)) }
+	d := &gdiDoc{hdc: hdc, w: dc(horzRes), h: dc(vertRes), dpiX: dc(logPixelsX), dpiY: dc(logPixelsY)}
+	if p.MarginMM != nil && *p.MarginMM > 0 {
+		mx, my := int(*p.MarginMM*float64(d.dpiX)/25.4), int(*p.MarginMM*float64(d.dpiY)/25.4)
+		if d.w-2*mx > 0 && d.h-2*my > 0 {
+			d.ox, d.oy, d.w, d.h = mx, my, d.w-2*mx, d.h-2*my
+		}
+	}
+	return d, nil
 }
 
 func (d *gdiDoc) end(failed bool) {
@@ -320,7 +496,7 @@ func printImageGDI(p *Payload) error {
 		procStartPage.Call(d.hdc)
 		procSetStretchBltMode.Call(d.hdc, halftone)
 		procSetBrushOrgEx.Call(d.hdc, 0, 0, 0)
-		r, _, e := procStretchDIBits.Call(d.hdc, uintptr(x), uintptr(y), uintptr(w), uintptr(h), 0, 0, uintptr(iw), uintptr(ih),
+		r, _, e := procStretchDIBits.Call(d.hdc, uintptr(x+d.ox), uintptr(y+d.oy), uintptr(w), uintptr(h), 0, 0, uintptr(iw), uintptr(ih),
 			uintptr(unsafe.Pointer(&pix[0])), uintptr(unsafe.Pointer(&bi)), 0, srcCopy)
 		procEndPage.Call(d.hdc)
 		if r == 0 {
@@ -380,7 +556,7 @@ func printTextGDI(p *Payload) error {
 			for i := start; i < start+perPage && i < len(lines); i++ {
 				s, _ := windows.UTF16FromString(lines[i])
 				if len(s) > 1 {
-					procTextOutW.Call(d.hdc, 0, uintptr((i-start)*lineH), uintptr(unsafe.Pointer(&s[0])), uintptr(len(s)-1))
+					procTextOutW.Call(d.hdc, uintptr(d.ox), uintptr(d.oy+(i-start)*lineH), uintptr(unsafe.Pointer(&s[0])), uintptr(len(s)-1))
 				}
 			}
 			procEndPage.Call(d.hdc)
@@ -427,7 +603,34 @@ func printPDF(ctx context.Context, p *Payload, data []byte) error {
 		settings = append(settings, p.Orientation)
 	}
 	if p.Paper != "" {
-		settings = append(settings, "paper="+p.Paper)
+		switch strings.ToLower(p.Paper) {
+		case "a2", "a3", "a4", "a5", "a6", "letter", "legal", "tabloid", "statement":
+			settings = append(settings, "paper="+strings.ToLower(p.Paper))
+		default:
+			if p.Warn != nil {
+				p.Warn(fmt.Sprintf("PDF: ukuran kertas %q tidak didukung SumatraPDF (hanya A2-A6, Letter, Legal, Tabloid, Statement); memakai kertas default printer", p.Paper))
+			}
+		}
+	}
+	switch p.Color {
+	case "mono":
+		settings = append(settings, "monochrome")
+	case "color":
+		settings = append(settings, "color")
+	}
+	switch p.Duplex {
+	case "simplex":
+		settings = append(settings, "simplex")
+	case "long":
+		settings = append(settings, "duplexlong")
+	case "short":
+		settings = append(settings, "duplexshort")
+	}
+	if p.Tray != "" {
+		settings = append(settings, "bin="+p.Tray)
+	}
+	if p.MarginMM != nil && p.Warn != nil {
+		p.Warn("PDF: margin_mm diabaikan (margin mengikuti PDF)")
 	}
 	if p.Pages != "" {
 		settings = append(settings, p.Pages)

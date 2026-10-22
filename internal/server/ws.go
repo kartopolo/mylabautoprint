@@ -10,6 +10,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
+	"mylabautoprint/internal/config"
 	"mylabautoprint/internal/printing"
 )
 
@@ -116,6 +117,61 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			}
 		case "jobs":
 			resp.Result = s.Mgr.Jobs()
+		case "printersWithCapabilities":
+			p, err := s.printersWithCaps()
+			if err != nil {
+				resp.OK, resp.Error = false, err.Error()
+			} else {
+				resp.Result = p
+			}
+		case "capabilities":
+			var a struct {
+				Name string `json:"name"`
+			}
+			_ = json.Unmarshal(in.Params, &a)
+			c, err := s.Mgr.Backend().Capabilities(a.Name)
+			if err != nil {
+				resp.OK, resp.Error = false, err.Error()
+			} else {
+				resp.Result = c
+			}
+		case "profiles":
+			resp.Result = s.Cfg.Get().Profiles
+		case "saveProfile":
+			var a struct {
+				Name    string         `json:"name"`
+				Profile config.Profile `json:"profile"`
+			}
+			if err := json.Unmarshal(in.Params, &a); err != nil {
+				resp.OK, resp.Error = false, "params tidak valid: "+err.Error()
+				break
+			}
+			if err := validateProfile(&a.Profile); err != nil {
+				resp.OK, resp.Error = false, err.Error()
+				break
+			}
+			if err := s.Cfg.SetProfile(a.Name, a.Profile); err != nil {
+				resp.OK, resp.Error = false, err.Error()
+				break
+			}
+			s.Logger.Printf("profil %q disimpan via WebSocket dari %s", a.Name, origin)
+			resp.Result = map[string]any{"name": a.Name, "profile": a.Profile}
+			go s.Broadcast(map[string]any{"type": "profiles", "profiles": s.Cfg.Get().Profiles})
+		case "deleteProfile":
+			var a struct {
+				Name string `json:"name"`
+			}
+			_ = json.Unmarshal(in.Params, &a)
+			existed, err := s.Cfg.DeleteProfile(a.Name)
+			switch {
+			case err != nil:
+				resp.OK, resp.Error = false, err.Error()
+			case !existed:
+				resp.OK, resp.Error = false, "profil tidak ditemukan: "+a.Name
+			default:
+				resp.Result = map[string]any{"deleted": a.Name}
+				go s.Broadcast(map[string]any{"type": "profiles", "profiles": s.Cfg.Get().Profiles})
+			}
 		case "print":
 			var req printing.Request
 			if err := json.Unmarshal(in.Params, &req); err != nil {

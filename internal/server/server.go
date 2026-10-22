@@ -143,6 +143,12 @@ func (s *Server) routes() http.Handler {
 	mux.Handle("GET /", http.FileServer(http.FS(sub)))
 	mux.HandleFunc("GET /status", s.handleStatus)
 	mux.HandleFunc("GET /printers", s.handlePrinters)
+	mux.HandleFunc("GET /printers/capabilities", s.handleCapabilities)
+	mux.HandleFunc("GET /profiles", s.handleProfiles)
+	mux.HandleFunc("GET /profiles/{name}", s.handleGetProfile)
+	mux.HandleFunc("PUT /profiles/{name}", s.handlePutProfile)
+	mux.HandleFunc("POST /profiles/{name}", s.handlePutProfile)
+	mux.HandleFunc("DELETE /profiles/{name}", s.handleDeleteProfile)
 	mux.HandleFunc("POST /print", s.handlePrint)
 	mux.HandleFunc("GET /jobs", s.handleJobs)
 	mux.HandleFunc("GET /jobs/{id}", s.handleJob)
@@ -231,7 +237,7 @@ func (s *Server) guard(next http.Handler) http.Handler {
 			h := w.Header()
 			h.Set("Access-Control-Allow-Origin", origin)
 			h.Add("Vary", "Origin")
-			h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
+			h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 			h.Set("Access-Control-Allow-Headers", "Content-Type, X-API-Key, Authorization")
 			h.Set("Access-Control-Max-Age", "600")
 			if r.Header.Get("Access-Control-Request-Private-Network") == "true" {
@@ -263,7 +269,7 @@ func (s *Server) guard(next http.Handler) http.Handler {
 }
 
 func apiPath(p string) bool {
-	for _, x := range []string{"/status", "/printers", "/print", "/jobs", "/config", "/test-print", "/update", "/log", "/ws"} {
+	for _, x := range []string{"/status", "/printers", "/profiles", "/print", "/jobs", "/config", "/test-print", "/update", "/log", "/ws"} {
 		if p == x || strings.HasPrefix(p, x+"/") {
 			return true
 		}
@@ -307,8 +313,157 @@ func (s *Server) printers() (map[string]any, error) {
 	return map[string]any{"ok": true, "default": def, "printers": ps}, nil
 }
 
+// printersWithCaps adds per-printer capabilities (paper sizes, trays, duplex, color).
+func (s *Server) printersWithCaps() (map[string]any, error) {
+	ps, def, err := s.Mgr.Backend().ListPrinters()
+	if err != nil {
+		return nil, err
+	}
+	type pc struct {
+		printing.Printer
+		Capabilities *printing.Capabilities `json:"capabilities,omitempty"`
+		CapError     string                 `json:"capabilities_error,omitempty"`
+	}
+	out := make([]pc, len(ps))
+	var wg sync.WaitGroup
+	for i, p := range ps {
+		out[i].Printer = p
+		wg.Add(1)
+		go func(i int, name string) {
+			defer wg.Done()
+			c, err := s.Mgr.Backend().Capabilities(name)
+			if err != nil {
+				out[i].CapError = err.Error()
+			} else {
+				out[i].Capabilities = c
+			}
+		}(i, p.Name)
+	}
+	wg.Wait()
+	return map[string]any{"ok": true, "default": def, "printers": out}, nil
+}
+
+func wantCaps(r *http.Request) bool {
+	v := r.URL.Query().Get("capabilities")
+	return v == "1" || v == "true"
+}
+
+func (s *Server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		writeJSON(w, 400, map[string]any{"ok": false, "error": "parameter name wajib"})
+		return
+	}
+	c, err := s.Mgr.Backend().Capabilities(name)
+	if err != nil {
+		writeJSON(w, 404, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "capabilities": c})
+}
+
+func (s *Server) handleProfiles(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, map[string]any{"ok": true, "profiles": s.Cfg.Get().Profiles})
+}
+
+func (s *Server) handleGetProfile(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	p, ok := s.Cfg.Get().Profiles[name]
+	if !ok {
+		writeJSON(w, 404, map[string]any{"ok": false, "error": "profil tidak ditemukan: " + name})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "name": name, "profile": p})
+}
+
+func (s *Server) handlePutProfile(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	var p config.Profile
+	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<16))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&p); err != nil {
+		writeJSON(w, 400, map[string]any{"ok": false, "error": "JSON profil tidak valid: " + err.Error()})
+		return
+	}
+	if err := validateProfile(&p); err != nil {
+		writeJSON(w, 400, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	if err := s.Cfg.SetProfile(name, p); err != nil {
+		code := 400
+		if errors.Is(err, config.ErrLocked) {
+			code = 403
+		}
+		writeJSON(w, code, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	s.Logger.Printf("profil %q disimpan (printer %q) dari %s", name, p.Printer, originLabel(r))
+	s.Broadcast(map[string]any{"type": "profiles", "profiles": s.Cfg.Get().Profiles})
+	writeJSON(w, 200, map[string]any{"ok": true, "name": name, "profile": p})
+}
+
+func (s *Server) handleDeleteProfile(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	existed, err := s.Cfg.DeleteProfile(name)
+	switch {
+	case err != nil:
+		writeJSON(w, 403, map[string]any{"ok": false, "error": err.Error()})
+	case !existed:
+		writeJSON(w, 404, map[string]any{"ok": false, "error": "profil tidak ditemukan: " + name})
+	default:
+		s.Logger.Printf("profil %q dihapus dari %s", name, originLabel(r))
+		s.Broadcast(map[string]any{"type": "profiles", "profiles": s.Cfg.Get().Profiles})
+		writeJSON(w, 200, map[string]any{"ok": true, "deleted": name})
+	}
+}
+
+func originLabel(r *http.Request) string {
+	if isSelfReq(r) {
+		return "pengaturan lokal"
+	}
+	return r.Header.Get("Origin")
+}
+
+func validateProfile(p *config.Profile) error {
+	p.Orientation = strings.ToLower(strings.TrimSpace(p.Orientation))
+	if p.Orientation != "" && p.Orientation != "portrait" && p.Orientation != "landscape" {
+		return errors.New("orientation harus portrait atau landscape")
+	}
+	switch strings.ToLower(p.Color) {
+	case "", "color", "mono", "monochrome":
+	default:
+		return errors.New("color harus color atau mono")
+	}
+	switch strings.ToLower(p.Duplex) {
+	case "", "simplex", "long", "short":
+	default:
+		return errors.New("duplex harus simplex, long, atau short")
+	}
+	switch p.Scale {
+	case "", "fit", "width", "noscale", "shrink":
+	default:
+		return errors.New("scale harus fit, width, shrink, atau noscale")
+	}
+	switch p.TextMode {
+	case "", "gdi", "raw":
+	default:
+		return errors.New("text_mode harus gdi atau raw")
+	}
+	if p.Copies < 0 || p.Copies > 99 {
+		return errors.New("copies harus 1-99")
+	}
+	if p.MarginMM != nil && (*p.MarginMM < 0 || *p.MarginMM > 100) {
+		return errors.New("margin_mm harus 0-100")
+	}
+	return nil
+}
+
 func (s *Server) handlePrinters(w http.ResponseWriter, r *http.Request) {
-	res, err := s.printers()
+	get := s.printers
+	if wantCaps(r) {
+		get = s.printersWithCaps
+	}
+	res, err := get()
 	if err != nil {
 		writeJSON(w, 500, map[string]any{"ok": false, "error": err.Error()})
 		return
@@ -337,7 +492,7 @@ func (s *Server) handlePrint(w http.ResponseWriter, r *http.Request) {
 	if res.Status == printing.StatusError {
 		code = 500
 	}
-	writeJSON(w, code, map[string]any{"ok": res.Status == printing.StatusDone, "job": res, "error": res.Error})
+	writeJSON(w, code, map[string]any{"ok": res.Status == printing.StatusDone, "job": res, "error": res.Error, "warnings": res.Warnings})
 }
 
 func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {
@@ -398,6 +553,7 @@ func (s *Server) handleTestPrint(w http.ResponseWriter, r *http.Request) {
 	var p struct {
 		Type    string `json:"type"`
 		Printer string `json:"printer"`
+		Profile string `json:"profile"`
 	}
 	_ = json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&p)
 	req, err := TestRequest(p.Type, s.Version)
@@ -406,6 +562,10 @@ func (s *Server) handleTestPrint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Printer = p.Printer
+	req.Profile = p.Profile
+	if p.Profile != "" {
+		req.JobName += " (profil " + p.Profile + ")"
+	}
 	job, err := s.Mgr.Submit(req, "test-print")
 	if err != nil {
 		writeJSON(w, 400, map[string]any{"ok": false, "error": err.Error()})

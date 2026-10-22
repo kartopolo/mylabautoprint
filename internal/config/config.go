@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -33,6 +34,24 @@ type PrintDefaults struct {
 	PDFScale    string `json:"pdf_scale"` // fit | shrink | noscale
 }
 
+// Profile is a named print profile ("label", "invoice", ...). Empty fields
+// fall back to the per-type default printer / global defaults.
+type Profile struct {
+	Printer     string   `json:"printer"`
+	Paper       string   `json:"paper,omitempty"`       // A4, A5, Letter, a paper name of the printer, 80mm, 100x150mm
+	Orientation string   `json:"orientation,omitempty"` // portrait | landscape
+	Copies      int      `json:"copies,omitempty"`
+	Scale       string   `json:"scale,omitempty"`  // image: fit|width|noscale ; pdf: fit|shrink|noscale
+	Color       string   `json:"color,omitempty"`  // "" | color | mono
+	Duplex      string   `json:"duplex,omitempty"` // "" | simplex | long | short
+	Tray        string   `json:"tray,omitempty"`   // paper source: bin name or number
+	MarginMM    *float64 `json:"margin_mm,omitempty"`
+	Cut         *bool    `json:"cut,omitempty"`       // raw ESC/POS: append paper cut
+	FontSize    int      `json:"font_size,omitempty"` // text (gdi)
+	TextMode    string   `json:"text_mode,omitempty"` // text: gdi | raw
+	Note        string   `json:"note,omitempty"`
+}
+
 // Update configures the auto-updater.
 type Update struct {
 	Enabled            bool   `json:"enabled"`
@@ -55,6 +74,7 @@ type Config struct {
 	Printers       Printers                   `json:"printers"`
 	Defaults       PrintDefaults              `json:"defaults"`
 	HistorySize    int                        `json:"history_size"`
+	Profiles       map[string]Profile         `json:"profiles"`
 	Update         Update                     `json:"update"`
 	Locked         map[string]json.RawMessage `json:"locked,omitempty"`
 }
@@ -180,6 +200,9 @@ func sanitize(c *Config) {
 	if c.AllowedOrigins == nil {
 		c.AllowedOrigins = []string{}
 	}
+	if c.Profiles == nil {
+		c.Profiles = map[string]Profile{}
+	}
 }
 
 // Path returns the config file path.
@@ -191,6 +214,10 @@ func (s *Store) Get() Config {
 	defer s.mu.RUnlock()
 	c := s.cfg
 	c.AllowedOrigins = append([]string(nil), s.cfg.AllowedOrigins...)
+	c.Profiles = make(map[string]Profile, len(s.cfg.Profiles))
+	for k, v := range s.cfg.Profiles {
+		c.Profiles[k] = v
+	}
 	return c
 }
 
@@ -301,6 +328,59 @@ func (s *Store) ApplyOverrides(over map[string]json.RawMessage, lock []string) (
 	}
 	s.cfg = next
 	return backup, s.saveLocked()
+}
+
+var profileName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 _.\-]{0,49}$`)
+
+// ValidProfileName reports whether name can be used as a profile name.
+func ValidProfileName(name string) bool { return profileName.MatchString(name) }
+
+// ErrLocked is returned when a locked key would be changed.
+var ErrLocked = errors.New("dikunci oleh developer")
+
+func (s *Store) profileLocked(name string) bool {
+	_, a := s.cfg.Locked["profiles"]
+	_, b := s.cfg.Locked["profiles."+name]
+	return a || b
+}
+
+// SetProfile creates or replaces a profile.
+func (s *Store) SetProfile(name string, p Profile) error {
+	if !ValidProfileName(name) {
+		return fmt.Errorf("nama profil tidak valid: %q (huruf/angka/spasi/_ . -, maks 50)", name)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.profileLocked(name) {
+		return ErrLocked
+	}
+	np := map[string]Profile{}
+	for k, v := range s.cfg.Profiles {
+		np[k] = v
+	}
+	np[name] = p
+	s.cfg.Profiles = np
+	return s.saveLocked()
+}
+
+// DeleteProfile removes a profile. Returns false if it did not exist.
+func (s *Store) DeleteProfile(name string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.cfg.Profiles[name]; !ok {
+		return false, nil
+	}
+	if s.profileLocked(name) {
+		return true, ErrLocked
+	}
+	np := map[string]Profile{}
+	for k, v := range s.cfg.Profiles {
+		if k != name {
+			np[k] = v
+		}
+	}
+	s.cfg.Profiles = np
+	return true, s.saveLocked()
 }
 
 // IsLocked reports whether a dot-path key is locked.

@@ -50,6 +50,18 @@ idealnya PC bersih (tanpa QZ Tray), dengan minimal 1 printer biasa + 1 printer t
 | D10 | Kirim ke printer yang dimatikan / nama salah | Job "error" dengan pesan jelas, aplikasi tidak hang | |
 | D11 | Kirim 10 struk cepat berturut-turut | Semua tercetak berurutan | |
 
+## D2. Profil printer
+| # | Langkah | Hasil | ✅/❌ |
+|---|---|---|---|
+| P1 | Pengaturan → Profil Printer → + Profil baru `invoice` (printer biasa, A4) → Simpan | Muncul di tabel | |
+| P2 | Pilih printer → daftar kertas & tray dari driver muncul (datalist) + info duplex/warna | Sesuai printer | |
+| P3 | Tes print profil (PDF) | Tercetak di printer profil | |
+| P4 | Profil `label` (printer label/thermal, `100x150mm` atau `80mm`, margin 2) → Tes print Gambar | Ukuran/posisi sesuai (catat jika driver mengabaikan ukuran custom) | |
+| P5 | Profil dengan duplex `long` + `mono` di printer yang mendukung → Tes PDF 2 halaman | Bolak-balik, hitam-putih | |
+| P6 | Profil dengan tray `Manual Feed` / `Tray 2` | Kertas diambil dari tray itu | |
+| P7 | `test.html` → bagian Profil: pilih printer untuk label & invoice → Simpan → Print invoice (URL PDF) | Tercetak di printer invoice | |
+| P8 | Print dengan profil yang tidak ada (`profile: "ghost"`) | Tetap tercetak di default, log/riwayat menampilkan peringatan | |
+
 ## E. Dari web app sungguhan (HTTPS)
 | # | Langkah | Hasil | ✅/❌ |
 |---|---|---|---|

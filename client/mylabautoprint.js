@@ -10,6 +10,8 @@
  *   const { printers, default: def } = await ap.listPrinters();
  *   await ap.print({ type: "raw", printer: "POS-80", text: "\x1b@Halo\n\n\n\x1dVB\x00" });
  *   await ap.printPDF("https://contoh.com/invoice.pdf", { printer: "HP LaserJet", paper: "A4" });
+ *   await ap.saveProfile("invoice", { printer: "HP LaserJet", paper: "A4", duplex: "long" });
+ *   await ap.print({ profile: "invoice", type: "pdf", url: "https://contoh.com/inv.pdf" });
  */
 (function (root, factory) {
   if (typeof module === "object" && module.exports) module.exports = factory();
@@ -37,7 +39,7 @@
     this._waiters = {};
     this._finished = {}; // job events can arrive before the print response
     this._finishedIds = [];
-    this._listeners = { status: [], job: [], printers: [], update: [], message: [] };
+    this._listeners = { status: [], job: [], printers: [], update: [], message: [], profiles: [] };
     this._wantWS = false;
   }
 
@@ -125,10 +127,31 @@
   /** true if the local app is running and reachable. */
   P.isAvailable = function () { return this.request("GET", "/status").then(function () { return true; }, function () { return false; }); };
   P.getStatus = function () { return this.request("GET", "/status"); };
-  P.listPrinters = function () {
-    if (this._wsOpen()) return this._call("printers").then(function (r) { return r; });
-    return this.request("GET", "/printers");
+  /**
+   * List printers. listPrinters({capabilities:true}) adds per-printer capabilities
+   * (papers, bins/trays, duplex, color) - slower, the driver is queried.
+   */
+  P.listPrinters = function (opts) {
+    var caps = opts && opts.capabilities;
+    if (this._wsOpen()) return this._call(caps ? "printersWithCapabilities" : "printers");
+    return this.request("GET", "/printers" + (caps ? "?capabilities=1" : ""));
   };
+  /** Capabilities of one printer: {papers:[{id,name,width_mm,height_mm}], bins:[{id,name}], duplex, color, max_copies} */
+  P.getCapabilities = function (printer) {
+    return this.request("GET", "/printers/capabilities?name=" + encodeURIComponent(printer)).then(function (r) { return r.capabilities; });
+  };
+
+  // ---- print profiles ------------------------------------------------------
+  // A profile maps a name used by the web app ("label", "invoice") to a printer + settings on this PC:
+  // {printer, paper, orientation, copies, scale, color: "color"|"mono", duplex: "simplex"|"long"|"short",
+  //  tray, margin_mm, cut, font_size, text_mode}
+  P.listProfiles = function () { return this.request("GET", "/profiles").then(function (r) { return r.profiles; }); };
+  P.getProfile = function (name) { return this.request("GET", "/profiles/" + encodeURIComponent(name)).then(function (r) { return r.profile; }); };
+  P.saveProfile = function (name, profile) {
+    return this.request("PUT", "/profiles/" + encodeURIComponent(name), profile || {}).then(function (r) { return r.profile; });
+  };
+  P.deleteProfile = function (name) { return this.request("DELETE", "/profiles/" + encodeURIComponent(name)); };
+  P.onProfiles = function (fn) { return this.on("profiles", fn); };
   P.jobs = function () { return this.request("GET", "/jobs").then(function (r) { return r.jobs; }); };
   P.getConfig = function () { return this.request("GET", "/config").then(function (r) { return r.config; }); };
   /** Partial update, e.g. setConfig({printers:{raw:"POS-80"}}) */
@@ -175,6 +198,7 @@
           }
         } else if (m.type === "printers") self._emit("printers", m);
         else if (m.type === "update") self._emit("update", m.update);
+        else if (m.type === "profiles") self._emit("profiles", m.profiles);
       };
       ws.onclose = function () {
         self._setStatus("disconnected");
@@ -205,8 +229,11 @@
 
   // ---- printing ----------------------------------------------------------------
   /**
-   * Print. req = {type: raw|pdf|image|text|html, printer?, data?(base64), text?, url?,
-   *               copies?, paper?, orientation?, jobName?, scale?, pages?, textMode?, fontSize?}
+   * Print. req = {type: raw|pdf|image|text|html, profile?, printer?, data?(base64), text?, url?,
+   *               copies?, paper?, orientation?, jobName?, scale?, pages?, textMode?, fontSize?,
+   *               color?, duplex?, tray?, marginMm?, cut?}
+   * Explicit fields override the profile; the profile overrides per-type defaults.
+   * Unknown profile -> job still prints with defaults and job.warnings explains why.
    * opts.wait (default true): resolve when the job is done (reject on error).
    * Resolves with the job object.
    */

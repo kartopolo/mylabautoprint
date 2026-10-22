@@ -103,13 +103,18 @@ Demo lengkap: buka `test.html` (bisa langsung dari file, atau taruh di web serve
 | Method | Path | Keterangan |
 |---|---|---|
 | GET | `/status` | Versi, port, uptime, status update, pemakaian memori Go |
-| GET | `/printers` | `{default, printers:[{name, default, network, server}]}` |
+| GET | `/printers` | `{default, printers:[{name, default, network, server}]}`; `?capabilities=1` menambah `capabilities` per printer |
+| GET | `/printers/capabilities?name=NAMA` | Kertas (nama + ukuran mm), tray/bin, duplex, warna, maks salinan (dari driver) |
+| GET | `/profiles` | Semua profil printer |
+| GET | `/profiles/{nama}` | Satu profil |
+| PUT/POST | `/profiles/{nama}` | Buat / ganti profil (lihat 2.5) |
+| DELETE | `/profiles/{nama}` | Hapus profil |
 | POST | `/print` | Kirim job print (lihat di bawah) |
 | GET | `/jobs` | Riwayat job (terbaru dulu, maks `history_size`) |
 | GET | `/jobs/{id}` | Status satu job |
 | GET | `/config` | Config lengkap + `locked_keys` |
 | PUT/POST | `/config` | Ubah sebagian config (deep-merge), mis. `{"printers":{"raw":"POS-80"}}` |
-| POST | `/test-print` | `{type:"text"|"raw"|"image"|"pdf", printer?}` |
+| POST | `/test-print` | `{type:"text"|"raw"|"image"|"pdf", printer?, profile?}` |
 | GET | `/update` | Status updater |
 | POST | `/update/check` | Cek update sekarang |
 | POST | `/update/install` | Pasang update (hanya dari halaman Pengaturan lokal) |
@@ -133,11 +138,19 @@ Demo lengkap: buka `test.html` (bisa langsung dari file, atau taruh di web serve
   "pages": "1-2",                 // pdf
   "textMode": "gdi",              // text: gdi (font Consolas) | raw (kirim apa adanya)
   "fontSize": 10,                 // text gdi, dalam point
-  "async": false                  // true = langsung balas status queued (cek via /jobs/{id} atau WS)
+  "async": false,                 // true = langsung balas status queued (cek via /jobs/{id} atau WS)
+  "profile": "invoice",           // profil printer (lihat 2.5)
+  "color": "mono",                // color | mono
+  "duplex": "long",               // simplex | long | short
+  "tray": "Tray 2",               // nama/nomor tray (lihat capabilities)
+  "marginMm": 5,                  // margin untuk gambar/teks (GDI)
+  "cut": true                     // raw ESC/POS: tambahkan potong kertas di akhir
 }
 ```
 
-Balasan (sinkron): `{"ok":true,"job":{"id":"...","status":"done",...}}`; jika gagal HTTP 400/500 + `"error"`.
+Balasan (sinkron): `{"ok":true,"job":{"id":"...","status":"done","printer":"...","settings":{...},"warnings":[...]}}`;
+jika gagal HTTP 400/500 + `"error"`. `warnings` berisi hal yang tidak fatal (mis. profil tidak ditemukan, ukuran kertas
+tidak didukung) — job tetap dicetak dengan pengaturan default.
 
 Printer jaringan langsung (raw/text): `"printer": "tcp://192.168.1.50:9100"` (port default 9100).
 
@@ -156,7 +169,8 @@ curl -X POST http://127.0.0.1:47819/print -H "Content-Type: application/json" \
 API key (jika ada): `ws://127.0.0.1:47819/ws?apiKey=KEY`.
 
 Kirim: `{"id":"1","action":"print","params":{...sama seperti POST /print...}}`
-Action lain: `printers`, `status`, `jobs`, `ping`.
+Action lain: `printers`, `printersWithCapabilities`, `capabilities` (`{name}`), `profiles`,
+`saveProfile` (`{name, profile}`), `deleteProfile` (`{name}`), `status`, `jobs`, `ping`.
 
 Diterima:
 - `{"type":"hello","version":"1.0.0"}` saat konek
@@ -164,6 +178,7 @@ Diterima:
 - `{"type":"job","job":{"id":"...","status":"queued|printing|done|error","error":"..."}}` – real-time
 - `{"type":"printers","default":"...","printers":[...]}` – saat konek & tiap daftar printer berubah (dicek tiap 20 detik)
 - `{"type":"update","update":{...}}` – status update
+- `{"type":"profiles","profiles":{...}}` – setiap kali profil berubah
 
 ### 2.4 Web app HTTPS → localhost
 
@@ -171,6 +186,59 @@ Chrome/Edge mengizinkan halaman `https://` memanggil `http://127.0.0.1` (localho
 MyLab AutoPrint sudah mengirim header CORS dan `Access-Control-Allow-Private-Network: true`
 (Private Network Access). Yang perlu kamu lakukan: masukkan origin web app kamu di *Website yang diizinkan*
 (atau biarkan `*`). Firefox & Safari juga bisa, tapi Safari kadang memblokir *mixed content* – pakai Chrome/Edge di klien.
+
+### 2.5 Profil printer
+
+Profil memetakan **nama yang dipakai web app** (mis. `label`, `invoice`, `struk`) ke **printer + pengaturan di PC klien**.
+Web app tidak perlu tahu nama printer di tiap komputer; cukup kirim `profile: "invoice"`.
+
+Isi profil (semua opsional kecuali yang kamu butuhkan):
+
+| Field | Contoh | Keterangan |
+|---|---|---|
+| `printer` | `"HP LaserJet M404"` / `"tcp://192.168.1.50:9100"` | kosong = default per tipe → default umum → default Windows |
+| `paper` | `"A4"`, `"A5"`, `"Letter"`, `"F4"`, nama kertas dari driver (`"4 x 6 in"`), `"80mm"`, `"100x150mm"` | `80mm` = lebar 80 mm × tinggi 297 mm; tulis `80x200mm` untuk tinggi lain |
+| `orientation` | `"portrait"` / `"landscape"` | |
+| `copies` | `2` | |
+| `scale` | `"fit"`, `"width"` (gambar selebar kertas), `"shrink"`/`"noscale"` (PDF) | |
+| `color` | `"color"` / `"mono"` | jika printer mendukung |
+| `duplex` | `"simplex"`, `"long"`, `"short"` | dua sisi tepi panjang/pendek |
+| `tray` | `"Tray 2"`, `"Manual Feed"`, atau nomor bin | lihat `capabilities.bins` |
+| `margin_mm` | `3` | gambar & teks (GDI) |
+| `cut` | `true` | raw ESC/POS: tambahkan perintah potong kertas |
+| `font_size`, `text_mode` | `9`, `"raw"` | untuk type `text` |
+| `note` | `"printer gudang"` | bebas |
+
+**Urutan prioritas:** field di request print > nilai profil > printer default per tipe (Pengaturan) > `printers.default`
+> printer default Windows. Kertas/orientasi/salinan: request > profil > *Default cetak*.
+Jika `profile` tidak ditemukan, job **tetap dicetak** dengan default dan `job.warnings` berisi
+`profil "x" tidak ditemukan ...` (tampil juga di Riwayat job & log).
+
+Profil bisa diatur oleh user di **Pengaturan → Profil Printer** (tambah/ubah/hapus, dropdown printer, daftar kertas & tray
+dari driver, tombol tes print per profil), atau dari web app lewat API (aturan origin & API key sama dengan `/config`).
+
+**Contoh alur di web app:**
+
+```js
+const ap = new MyLabAutoPrint();                 // port auto-detect
+
+// 1. Halaman "Pengaturan printer" di web app kamu: ambil daftar printer (+ kemampuan)
+const { printers } = await ap.listPrinters({ capabilities: true });
+// tampilkan dropdown printers.map(p => p.name) untuk "Label" dan "Invoice",
+// mis. kertas dari p.capabilities.papers, tray dari p.capabilities.bins
+
+// 2. User memilih -> simpan sebagai profil di PC klien
+await ap.saveProfile("label",   { printer: pilihanLabel,   paper: "100x150mm", scale: "width", margin_mm: 2 });
+await ap.saveProfile("invoice", { printer: pilihanInvoice, paper: "A4", duplex: "long", color: "mono" });
+
+// 3. Saat mencetak cukup sebut profilnya
+await ap.print({ profile: "invoice", type: "pdf", url: "https://app.domainkamu.com/invoice/123.pdf" });
+await ap.print({ profile: "label", type: "image", data: base64Png });
+const job = await ap.print({ profile: "struk", type: "raw", text: MyLabAutoPrint.escpos("Total 20.000") });
+if (job.warnings) console.warn(job.warnings);   // mis. profil "struk" belum dibuat di PC ini
+```
+
+Lihat juga `test.html` bagian *Profil printer*.
 
 ---
 
@@ -189,6 +257,10 @@ Urutan prioritas: **bawaan aplikasi** < `defaults.json` (di folder program, dari
   "printers": { "default": "", "raw": "", "pdf": "", "image": "", "text": "", "html": "" },
   "defaults": { "paper": "", "orientation": "portrait", "copies": 1, "pdf_scale": "fit" },
   "history_size": 50,
+  "profiles": {
+    "invoice": { "printer": "HP LaserJet M404", "paper": "A4", "duplex": "long", "color": "mono" },
+    "label":   { "printer": "XP-420B", "paper": "100x150mm", "scale": "width", "margin_mm": 2 }
+  },
   "update": {
     "enabled": true,
     "mode": "notify",
@@ -210,6 +282,7 @@ Urutan prioritas: **bawaan aplikasi** < `defaults.json` (di folder program, dari
 | `api_key` | Jika diisi, request dari website wajib kirim header `X-API-Key` (atau `?apiKey=` untuk WS) |
 | `autostart` | Jalan saat Windows nyala (HKCU\...\Run) |
 | `printers.*` | Printer default per tipe job; kosong = `printers.default` → default Windows |
+| `profiles` | Profil printer bernama (lihat 2.5). Bisa dikirim lewat override rilis, mis. `profiles.label={"printer":"XP-420B"}`, dan dikunci dengan lock `profiles` atau `profiles.label` |
 | `defaults.*` | Kertas, orientasi, salinan, skala PDF default |
 | `update.mode` | `notify` = tampilkan "Update tersedia", klien klik; `auto` = pasang otomatis saat tidak ada job |
 | `update.source` | `github` (pakai `repo`) atau `url` (pakai `url` ke `latest.json`) |
@@ -450,7 +523,13 @@ tests/update_test.sh
 - Windows 10/11 64-bit (Go modern tidak mendukung Windows 7/8).
 - HTML: *best-effort* – dirender ke PDF oleh Edge/Chrome headless yang ada di PC klien, lalu dicetak SumatraPDF.
 - Word/Excel tidak didukung langsung (konversi ke PDF dulu di server).
-- Printer thermal dengan kertas custom: ukuran kertas mengikuti driver (pilihan `paper` hanya ukuran standar).
+- Ukuran kertas custom (`80mm`, `100x150mm`): jika driver punya form kertas dengan ukuran hampir sama (±2,5 mm,
+  mis. "4 x 6 in") form itu yang dipakai; jika tidak, ukuran dikirim lewat DEVMODE (dmPaperWidth/Length) dan job
+  mendapat `warnings`. Sebagian driver mengabaikannya dan memakai kertas default → solusi: buat *form* kertas di
+  Windows (Print Server Properties → Forms) atau di pengaturan driver, lalu pakai **nama form** itu sebagai `paper`. Untuk **PDF**, SumatraPDF hanya menerima A2–A6, Letter,
+  Legal, Tabloid, Statement — ukuran lain memakai kertas default printer (ada `warnings`); atur default kertas printer
+  di Windows untuk label PDF. `margin_mm` tidak berlaku untuk PDF.
+- `color`, `duplex`, `tray` hanya berpengaruh jika driver printer mendukungnya.
 - Auto-update memunculkan UAC karena terpasang di Program Files.
 - `defaults.json` di folder program ditimpa setiap update (itu memang default dari developer); setting klien di
   `config.json` tidak tersentuh.

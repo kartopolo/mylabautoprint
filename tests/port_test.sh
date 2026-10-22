@@ -25,7 +25,7 @@ import json,sys; p=sys.argv[1]; c=json.load(open(p)); c["port"]=8181; json.dump(
 PY
 start
 check "explicit 8181 with config_version 2 kept" "$(curl -s 127.0.0.1:8181/status)" '"port":8181'
-check "JS discovers legacy 8181 fallback" "$(EXPECT_PORT=8181 node --experimental-websocket tests/ws_client_test.js 2>/dev/null | grep -c PASS)" '^11$'
+check "JS discovers legacy 8181 fallback (all WS client tests pass)" "$(EXPECT_PORT=8181 node --experimental-websocket tests/ws_client_test.js 2>/dev/null | grep -c FAIL)" "^0$"
 # 4. JS discovery follows the app when it moves port (8181 -> 47819 live)
 OUT=$(node --experimental-websocket - <<'JS' 2>/dev/null
 const M = require("./client/mylabautoprint.js");

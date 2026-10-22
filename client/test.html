@@ -26,7 +26,18 @@ pre{background:#11161f;color:#cfe3ff;padding:10px;border-radius:6px;max-height:3
   <button id="btnPrinters">Daftar printer</button>
 </fieldset>
 <fieldset>
+  <legend>Profil printer (contoh alur web app)</legend>
+  <p style="margin:2px 0 8px;color:#5a6478">1) Daftar printer diambil dari aplikasi → 2) user memilih printer untuk <b>label</b> dan <b>invoice</b> → 3) Simpan profil
+  → 4) web app cukup print dengan <code>{profile:"invoice"}</code> tanpa tahu nama printer.</p>
+  <div id="profrows"></div>
+  <button id="bProfSave">Simpan profil</button>
+  <button id="bProfLabel">Print label (gambar tes)</button>
+  <button id="bProfInvoice">Print invoice (PDF dari URL di bawah)</button>
+  <button id="bProfList">Lihat profil</button>
+</fieldset>
+<fieldset>
   <legend>Print</legend>
+  <label>Profil <input id="profile" placeholder="(tanpa profil)" size="12"></label>
   <label>Printer <select id="printer"><option value="">(default)</option></select></label>
   <label>atau tcp:// <input id="tcp" placeholder="tcp://192.168.1.50:9100" size="24"></label>
   <label>Salinan <input id="copies" type="number" value="1" min="1" style="width:60px"></label>
@@ -60,6 +71,19 @@ function client() {
   ap.onPrinters(function (p) { fill(p); });
   return ap;
 }
+var PROFILES = [{ name: "label", paper: "100x150mm", hint: "printer label / thermal" }, { name: "invoice", paper: "A4", hint: "printer biasa" }];
+function profRows(printers, saved) {
+  $("profrows").innerHTML = PROFILES.map(function (p) {
+    var cur = (saved[p.name] || {}).printer || "";
+    return '<div><label><b>' + p.name + '</b> (' + p.hint + ') → printer <select id="pp_' + p.name + '"><option value="">(default)</option>' +
+      printers.map(function (x) { var n = x.name.replace(/</g, "&lt;"); return "<option" + (x.name === cur ? " selected" : "") + ">" + n + "</option>"; }).join("") +
+      '</select></label> <label>kertas <input id="pk_' + p.name + '" size="10" value="' + ((saved[p.name] || {}).paper || p.paper) + '"></label></div>';
+  }).join("");
+}
+function loadProfRows() {
+  var c = ap || client();
+  Promise.all([c.listPrinters(), c.listProfiles()]).then(function (r) { profRows(r[0].printers, r[1] || {}); }, function (e) { log(e.message); });
+}
 function fill(p) {
   var sel = $("printer"), cur = sel.value;
   sel.innerHTML = '<option value="">(default: ' + (p.default || "-") + ')</option>' +
@@ -67,10 +91,10 @@ function fill(p) {
   sel.value = cur;
 }
 function opts() {
-  return { printer: $("tcp").value || $("printer").value || undefined, copies: +$("copies").value || 1,
+  return { profile: $("profile").value || undefined, printer: $("tcp").value || $("printer").value || undefined, copies: +$("copies").value || 1,
            paper: $("paper").value || undefined, orientation: $("orient").value || undefined };
 }
-function run(p) { p.then(function (j) { log("SELESAI: " + j.id + " " + j.status); }, function (e) { log("GAGAL: " + e.message); }); }
+function run(p) { p.then(function (j) { log("SELESAI: " + j.id + " " + j.status + " -> " + j.printer + (j.warnings && j.warnings.length ? " ⚠ " + j.warnings.join("; ") : "")); }, function (e) { log("GAGAL: " + e.message); }); }
 
 $("btnConnect").onclick = function () {
   client().connect().then(function () { return ap.getStatus(); }).then(function (s) { $("ver").textContent = s.version; log("terhubung"); },
@@ -81,12 +105,27 @@ $("bRaw").onclick = function () { run((ap || client()).printRaw(MyLabAutoPrint.e
 $("bText").onclick = function () { run((ap || client()).printText($("text").value, opts())); };
 $("bHTML").onclick = function () { run((ap || client()).printHTML("<html><body><h1>Demo</h1><pre>" + $("text").value + "</pre></body></html>", opts())); };
 $("bURL").onclick = function () { run((ap || client()).printPDF($("url").value, opts())); };
+$("bProfSave").onclick = function () {
+  var c = ap || client();
+  Promise.all(PROFILES.map(function (p) {
+    return c.saveProfile(p.name, { printer: $("pp_" + p.name).value, paper: $("pk_" + p.name).value || undefined });
+  })).then(function () { log("profil label & invoice tersimpan"); }, function (e) { log("GAGAL simpan profil: " + e.message); });
+};
+$("bProfLabel").onclick = function () {
+  var c = ap || client();
+  run(c.request("POST", "/test-print", { type: "image", profile: "label" }).then(function (r) { return r.job; }));
+};
+$("bProfInvoice").onclick = function () {
+  var url = $("url").value; if (!url) { log("isi URL PDF dulu (kolom paling bawah)"); return; }
+  run((ap || client()).print({ profile: "invoice", type: "pdf", url: url }));
+};
+$("bProfList").onclick = function () { (ap || client()).listProfiles().then(function (p) { log(p); }, function (e) { log(e.message); }); };
 $("bFile").onclick = function () {
   var f = $("file").files[0]; if (!f) { log("pilih file dulu"); return; }
   var c = ap || client();
   run(f.type === "application/pdf" || /\.pdf$/i.test(f.name) ? c.printPDF(f, opts()) : c.printImage(f, opts()));
 };
-client().isAvailable().then(function (ok) { log(ok ? "MyLab AutoPrint terdeteksi di port " + ap.port : "MyLab AutoPrint TIDAK terdeteksi"); if (ok) $("btnConnect").click(); });
+client().isAvailable().then(function (ok) { log(ok ? "MyLab AutoPrint terdeteksi di port " + ap.port : "MyLab AutoPrint TIDAK terdeteksi"); if (ok) { $("btnConnect").click(); loadProfRows(); } });
 </script>
 </body>
 </html>

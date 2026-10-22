@@ -25,21 +25,89 @@ const (
 
 // Job is a print job and its state (as kept in history).
 type Job struct {
-	ID       string     `json:"id"`
-	Type     string     `json:"type"`
-	Printer  string     `json:"printer"`
-	JobName  string     `json:"jobName"`
-	Copies   int        `json:"copies"`
-	Size     int        `json:"size"`
-	Origin   string     `json:"origin,omitempty"`
-	Status   string     `json:"status"`
-	Error    string     `json:"error,omitempty"`
-	Created  time.Time  `json:"created"`
-	Started  *time.Time `json:"started,omitempty"`
-	Finished *time.Time `json:"finished,omitempty"`
+	ID       string      `json:"id"`
+	Type     string      `json:"type"`
+	Printer  string      `json:"printer"`
+	JobName  string      `json:"jobName"`
+	Copies   int         `json:"copies"`
+	Size     int         `json:"size"`
+	Origin   string      `json:"origin,omitempty"`
+	Profile  string      `json:"profile,omitempty"`
+	Settings JobSettings `json:"settings"`
+	Warnings []string    `json:"warnings,omitempty"`
+	Status   string      `json:"status"`
+	Error    string      `json:"error,omitempty"`
+	Created  time.Time   `json:"created"`
+	Started  *time.Time  `json:"started,omitempty"`
+	Finished *time.Time  `json:"finished,omitempty"`
 
 	req  Request
 	done chan struct{}
+}
+
+// JobSettings are the resolved print settings of a job.
+type JobSettings struct {
+	Paper       string   `json:"paper,omitempty"`
+	Orientation string   `json:"orientation,omitempty"`
+	Scale       string   `json:"scale,omitempty"`
+	Color       string   `json:"color,omitempty"`
+	Duplex      string   `json:"duplex,omitempty"`
+	Tray        string   `json:"tray,omitempty"`
+	MarginMM    *float64 `json:"margin_mm,omitempty"`
+	Cut         bool     `json:"cut,omitempty"`
+	TextMode    string   `json:"text_mode,omitempty"`
+	FontSize    int      `json:"font_size,omitempty"`
+}
+
+// applyProfile fills request fields that were not set explicitly.
+func applyProfile(r *Request, p config.Profile) {
+	str := func(dst *string, v string) {
+		if *dst == "" {
+			*dst = v
+		}
+	}
+	str(&r.Printer, p.Printer)
+	str(&r.Paper, p.Paper)
+	str(&r.Orientation, p.Orientation)
+	str(&r.Scale, p.Scale)
+	str(&r.Color, p.Color)
+	str(&r.Duplex, p.Duplex)
+	str(&r.Tray, p.Tray)
+	str(&r.TextMode, p.TextMode)
+	if r.Copies <= 0 && p.Copies > 0 {
+		r.Copies = p.Copies
+	}
+	if r.FontSize <= 0 && p.FontSize > 0 {
+		r.FontSize = p.FontSize
+	}
+	if r.MarginMM == nil && p.MarginMM != nil {
+		m := *p.MarginMM
+		r.MarginMM = &m
+	}
+	if r.Cut == nil && p.Cut != nil {
+		c := *p.Cut
+		r.Cut = &c
+	}
+}
+
+func normalize(r *Request) {
+	r.Orientation = strings.ToLower(strings.TrimSpace(r.Orientation))
+	r.Color = strings.ToLower(strings.TrimSpace(r.Color))
+	switch r.Color {
+	case "monochrome", "grayscale", "bw":
+		r.Color = "mono"
+	case "colour":
+		r.Color = "color"
+	}
+	r.Duplex = strings.ToLower(strings.TrimSpace(r.Duplex))
+	switch r.Duplex {
+	case "duplex", "longedge", "long-edge", "vertical":
+		r.Duplex = "long"
+	case "shortedge", "short-edge", "horizontal":
+		r.Duplex = "short"
+	case "none", "off":
+		r.Duplex = "simplex"
+	}
 }
 
 // Event is pushed to subscribers on every job state change.
@@ -131,6 +199,15 @@ func (m *Manager) Submit(req Request, origin string) (*Job, error) {
 		return nil, fmt.Errorf("type tidak dikenal: %q (pakai raw|pdf|image|text|html)", req.Type)
 	}
 	c := m.cfg.Get()
+	var warnings []string
+	if req.Profile != "" {
+		if p, ok := c.Profiles[req.Profile]; ok {
+			applyProfile(&req, p)
+		} else {
+			warnings = append(warnings, fmt.Sprintf("profil %q tidak ditemukan; memakai printer & pengaturan default", req.Profile))
+		}
+	}
+	normalize(&req)
 	if req.Copies <= 0 {
 		req.Copies = c.Defaults.Copies
 	}
@@ -159,8 +236,18 @@ func (m *Manager) Submit(req Request, origin string) (*Job, error) {
 	if IsNetworkRaw(printer) && req.Type != TypeRaw && req.Type != TypeText {
 		return nil, errors.New("printer tcp:// hanya untuk type raw atau text")
 	}
+	if req.Cut != nil && *req.Cut && req.Type != TypeRaw {
+		warnings = append(warnings, "opsi cut hanya berlaku untuk type raw (diabaikan)")
+	}
 	j := &Job{ID: newID(), Type: req.Type, Printer: printer, JobName: req.JobName, Copies: req.Copies,
-		Origin: origin, Status: StatusQueued, Created: time.Now(), req: req, done: make(chan struct{})}
+		Origin: origin, Status: StatusQueued, Created: time.Now(), req: req, done: make(chan struct{}),
+		Profile: req.Profile, Warnings: warnings,
+		Settings: JobSettings{Paper: req.Paper, Orientation: req.Orientation, Scale: req.Scale, Color: req.Color,
+			Duplex: req.Duplex, Tray: req.Tray, MarginMM: req.MarginMM, Cut: req.Cut != nil && *req.Cut && req.Type == TypeRaw,
+			TextMode: req.TextMode, FontSize: req.FontSize}}
+	for _, w := range warnings {
+		m.logger.Printf("job %s: PERINGATAN: %s", j.ID, w)
+	}
 
 	m.mu.Lock()
 	m.history = append(m.history, j)
@@ -219,7 +306,16 @@ func (m *Manager) run(j *Job) {
 		m.mu.Lock()
 		j.Size = len(data)
 		m.mu.Unlock()
-		p := &Payload{Request: j.req, Printer: j.Printer, Bytes: data, TmpDir: m.tmpDir, AppDir: m.appDir}
+		if j.req.Type == TypeRaw && j.req.Cut != nil && *j.req.Cut {
+			data = append(append([]byte(nil), data...), 0x0a, 0x0a, 0x0a, 0x1d, 0x56, 0x42, 0x00) // feed + GS V B 0
+		}
+		p := &Payload{Request: j.req, Printer: j.Printer, Bytes: data, TmpDir: m.tmpDir, AppDir: m.appDir,
+			Warn: func(w string) {
+				m.mu.Lock()
+				j.Warnings = append(j.Warnings, w)
+				m.mu.Unlock()
+				m.logger.Printf("job %s: PERINGATAN: %s", j.ID, w)
+			}}
 		if IsNetworkRaw(j.Printer) {
 			return printNetworkRaw(ctx, j.Printer, data, j.Copies)
 		}
@@ -267,6 +363,7 @@ func (m *Manager) snapshot(j *Job) Job {
 	defer m.mu.Unlock()
 	c := *j
 	c.done = nil
+	c.Warnings = append([]string(nil), j.Warnings...)
 	return c
 }
 

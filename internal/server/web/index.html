@@ -32,6 +32,42 @@
     <p class="hint">Printer jaringan langsung (raw): ketik di kolom printer web app <code>tcp://192.168.1.50:9100</code>.</p>
   </section>
 
+  <section id="profiles">
+    <h2>Profil Printer</h2>
+    <p class="hint">Web app bisa mencetak dengan nama profil, mis. <code>profile: "label"</code> atau <code>"invoice"</code>.
+      Di sini tentukan profil itu memakai printer dan pengaturan apa di komputer ini. Isian kosong = pakai default.</p>
+    <table>
+      <thead><tr><th>Nama</th><th>Printer</th><th>Kertas</th><th>Orientasi</th><th>Salinan</th><th>Lainnya</th><th></th></tr></thead>
+      <tbody id="proflist"></tbody>
+    </table>
+    <div class="row" style="margin-top:8px"><button id="profnew" class="secondary">+ Profil baru</button></div>
+    <div id="profform" class="hidden" style="margin-top:12px;border-top:1px solid #eef1f6;padding-top:12px">
+      <div class="grid">
+        <label>Nama profil <input type="text" id="pf_name" placeholder="label / invoice / struk" maxlength="50"></label>
+        <label>Printer <select id="pf_printer" class="psel pfp"></select></label>
+        <label>Ukuran kertas <input type="text" id="pf_paper" list="pf_papers" placeholder="A4, A5, Letter, 80mm, 100x150mm"></label>
+        <label>Orientasi <select id="pf_orientation"><option value="">(default)</option><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></label>
+        <label>Salinan <input type="number" id="pf_copies" min="0" max="99" placeholder="default"></label>
+        <label>Skala <select id="pf_scale"><option value="">(default)</option><option value="fit">Fit (pas halaman)</option><option value="width">Lebar penuh (gambar)</option><option value="shrink">Shrink (PDF)</option><option value="noscale">Ukuran asli</option></select></label>
+        <label>Warna <select id="pf_color"><option value="">(default printer)</option><option value="color">Berwarna</option><option value="mono">Hitam-putih</option></select></label>
+        <label>Bolak-balik (duplex) <select id="pf_duplex"><option value="">(default printer)</option><option value="simplex">Satu sisi</option><option value="long">Dua sisi (tepi panjang)</option><option value="short">Dua sisi (tepi pendek)</option></select></label>
+        <label>Tray / sumber kertas <input type="text" id="pf_tray" list="pf_bins" placeholder="(default printer)"></label>
+        <label>Margin (mm, gambar/teks) <input type="number" id="pf_margin" min="0" max="100" step="0.5" placeholder="0"></label>
+        <label>Ukuran font teks (pt) <input type="number" id="pf_font" min="0" max="72" placeholder="10"></label>
+        <label class="check"><input type="checkbox" id="pf_cut"> Potong kertas setelah print raw (ESC/POS)</label>
+      </div>
+      <datalist id="pf_papers"></datalist><datalist id="pf_bins"></datalist>
+      <p class="hint" id="pf_caps"></p>
+      <div class="row">
+        <button id="pf_save">Simpan profil</button>
+        <select id="pf_testtype"><option value="text">Teks</option><option value="raw">Raw ESC/POS</option><option value="image">Gambar</option><option value="pdf">PDF</option></select>
+        <button id="pf_test" class="secondary">Tes print profil ini</button>
+        <button id="pf_cancel" class="secondary">Batal</button>
+        <span id="pf_res" class="hint"></span>
+      </div>
+    </div>
+  </section>
+
   <section>
     <h2>Default cetak</h2>
     <div class="grid">

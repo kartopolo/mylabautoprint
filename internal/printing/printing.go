@@ -42,6 +42,37 @@ type Request struct {
 	TextMode    string `json:"textMode,omitempty"` // text: gdi (default) | raw
 	FontSize    int    `json:"fontSize,omitempty"` // text (gdi): points, default 10
 	Async       bool   `json:"async,omitempty"`    // HTTP: return immediately with the queued job
+
+	Profile  string   `json:"profile,omitempty"`  // named print profile (see /profiles)
+	Color    string   `json:"color,omitempty"`    // "" | color | mono
+	Duplex   string   `json:"duplex,omitempty"`   // "" | simplex | long | short
+	Tray     string   `json:"tray,omitempty"`     // paper source: bin name or number
+	MarginMM *float64 `json:"marginMm,omitempty"` // image/text (gdi): page margin in mm
+	Cut      *bool    `json:"cut,omitempty"`      // raw: append ESC/POS paper cut (GS V B 0)
+}
+
+// Paper describes a paper size supported by a printer.
+type Paper struct {
+	ID       int     `json:"id"`
+	Name     string  `json:"name"`
+	WidthMM  float64 `json:"width_mm"`
+	HeightMM float64 `json:"height_mm"`
+}
+
+// Bin describes a paper source / tray.
+type Bin struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
+
+// Capabilities of a printer (best effort, from the driver).
+type Capabilities struct {
+	Printer   string  `json:"printer"`
+	Papers    []Paper `json:"papers"`
+	Bins      []Bin   `json:"bins"`
+	Duplex    bool    `json:"duplex"`
+	Color     bool    `json:"color"`
+	MaxCopies int     `json:"max_copies"`
 }
 
 // Printer describes an installed printer.
@@ -59,12 +90,15 @@ type Payload struct {
 	Bytes   []byte
 	TmpDir  string
 	AppDir  string
+	// Warn adds a non-fatal warning to the job result.
+	Warn func(string)
 }
 
 // Backend is implemented per platform.
 type Backend interface {
 	Name() string
 	ListPrinters() ([]Printer, string, error)
+	Capabilities(printer string) (*Capabilities, error)
 	Print(ctx context.Context, p *Payload) error
 }
 
