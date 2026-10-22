@@ -140,13 +140,15 @@ func (u *Updater) get(ctx context.Context, rawURL string, accept string) ([]byte
 }
 
 type ghRelease struct {
-	TagName    string `json:"tag_name"`
-	Draft      bool   `json:"draft"`
-	Prerelease bool   `json:"prerelease"`
-	Assets     []struct {
-		Name string `json:"name"`
-		URL  string `json:"browser_download_url"`
-	} `json:"assets"`
+	TagName    string    `json:"tag_name"`
+	Draft      bool      `json:"draft"`
+	Prerelease bool      `json:"prerelease"`
+	Assets     []ghAsset `json:"assets"`
+}
+
+type ghAsset struct {
+	Name string `json:"name"`
+	URL  string `json:"browser_download_url"`
 }
 
 // fetchManifest downloads latest.json from the configured source.
@@ -171,9 +173,16 @@ func (u *Updater) fetchManifest(ctx context.Context) (*Manifest, error) {
 		if c.Channel == "stable" {
 			b, err := u.get(ctx, api+"/repos/"+c.Repo+"/releases/latest", "application/vnd.github+json")
 			if err != nil {
-				return nil, err
-			}
-			if err := json.Unmarshal(b, &rel); err != nil {
+				if os.Getenv("MYLABAUTOPRINT_GITHUB_API") != "" {
+					return nil, err
+				}
+				// API limit (60 req/jam per IP, mis. banyak PC di belakang satu IP) atau API error:
+				// fallback ke URL unduhan langsung, tidak memakai kuota API. Installer di-resolve
+				// relatif terhadap URL ini dan tetap diverifikasi sha256 + tanda tangan.
+				log.Printf("update: GitHub API gagal (%v), fallback ke releases/latest/download", err)
+				rel = ghRelease{TagName: "latest", Assets: []ghAsset{{Name: "latest.json",
+					URL: "https://github.com/" + c.Repo + "/releases/latest/download/latest.json"}}}
+			} else if err := json.Unmarshal(b, &rel); err != nil {
 				return nil, err
 			}
 		} else {

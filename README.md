@@ -490,6 +490,10 @@ tests/update_test.sh
 
 **Update tidak muncul**
 - Pengaturan → Update → *Cek update sekarang*, lihat pesan errornya.
+- `api.github.com ... HTTP 403`: batas GitHub API tanpa login = 60 request/jam per IP publik (banyak PC di belakang
+  satu IP berbagi kuota ini). Sejak v1.0.3 aplikasi otomatis *fallback* ke
+  `https://github.com/OWNER/REPO/releases/latest/download/latest.json` (tanpa kuota API; tetap diverifikasi
+  tanda tangan + sha256). Versi ≤1.0.2 cukup menunggu ±1 jam lalu cek lagi, atau pakai `update.source = "url"`.
 - `release ... tidak punya asset latest.json`: lampirkan `latest.json` di release.
 - `signature ... TIDAK COCOK`: latest.json ditandatangani key lain / diedit setelah ditandatangani.
 - Repo releases harus **public**. Batas API GitHub tanpa login: 60 request/jam per IP (cek tiap 6 jam aman).
